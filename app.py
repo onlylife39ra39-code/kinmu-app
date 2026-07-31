@@ -2,118 +2,135 @@
 import streamlit as st
 import pandas as pd
 import json
-import re
+import requests
 
 from io_utils import export_excel
 from engine import solve_schedule
 
 
 # ============================
-# AI呼び出し（ここだけ環境に合わせて書き換える）
+# HuggingFace AI 呼び出し
 # ============================
+HF_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Llama-3-8B-Instruct"
+HF_API_KEY = "hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # ← ここにまーくんのキー
+
+
 def call_ai(prompt: str) -> str:
-    """
-    ここにまーくんの使うAIの呼び出し処理を書く。
-    例：OpenAI / Azure / Copilot Studio など。
-    今はダミーとして、手動でJSONを返す形にしてある。
-    """
-    # ★★★ ここを実際のAI呼び出しに差し替える ★★★
-    # 返すべきJSONの形：
-    # {
-    #   "staff": [
-    #     {"name": "千明恵美", "role": "介護長", "group": null},
-    #     {"name": "浦野裕太", "role": "介護主任", "group": null},
-    #     {"name": "茂木最恵", "role": null, "group": "Aグループ"},
-    #     ...
-    #   ],
-    #   "codes": ["日1", "公", "入浴", ...]
-    # }
-    dummy = {
-        "staff": [],
-        "codes": []
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 1024,
+            "temperature": 0.2
+        }
     }
-    return json.dumps(dummy, ensure_ascii=False)
+    response = requests.post(HF_API_URL, headers=headers, json=payload)
+    response.raise_for_status()
+    data = response.json()
+    # テキスト生成系モデルの返り値形式に合わせて抽出
+    if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
+        return data[0]["generated_text"]
+    return str(data)
 
 
 # ============================
-# Streamlit UI 設定
+# Streamlit UI
 # ============================
-st.set_page_config(page_title="勤務表自動生成（全部AI解析版）", layout="wide")
-
-st.title("📘 勤務表自動生成システム（Excel全部AI解析版）")
+st.set_page_config(page_title="勤務表自動生成（AI解析版）", layout="wide")
+st.title("📘 勤務表自動生成システム（HuggingFace無料AI連携）")
 st.sidebar.header("Excelアップロード")
 
-
-# ============================
-# Excel アップロード
-# ============================
 uploaded_file = st.sidebar.file_uploader("主任作成の勤務表Excelをアップロード", type=["xlsx"])
 
 if not uploaded_file:
-    st.info("主任が作った勤務表Excelをそのままアップロードしてね。")
+    st.info("主任が作った勤務表Excelをそのままアップロードしてください。")
     st.stop()
 
+
 # ============================
-# Excel → テキスト化（AIに渡す前処理）
+# Excel → テキスト化
 # ============================
 df_raw = pd.read_excel(uploaded_file, header=None)
-
-# ここでは 1列目を対象にしているが、必要なら複数列を結合してもOK
 text_data = "\n".join(df_raw[0].astype(str).tolist())
 
-st.write("### 読み込みデータ（1列目のテキスト化プレビュー）")
-st.text_area("Excel 1列目テキスト", text_data, height=200)
+st.write("### Excel 1列目のテキスト化プレビュー")
+st.text_area("テキスト", text_data, height=200)
 
 
 # ============================
-# AI に構造化を依頼
+# AI 解析プロンプト
 # ============================
 prompt = f"""
-以下は介護施設の勤務表Excelの1列目です。
-このデータを構造化してください。
+You are an assistant that analyzes a Japanese nursing home work schedule Excel column.
 
-抽出したい項目：
-- 職員名（記号は除外）
-- 役職名（介護長、主任など）
-- グループ名（Aグループなど）
-- 勤務記号（日1、公、入浴、有、会議など）
-- 数字（勤務数）
-- その他のメタ情報
+Below is the first column of an Excel sheet used as a monthly work schedule
+for care staff in a special nursing home.
 
-出力形式（JSON）：
+Your task:
+- Read the data as human-readable text.
+- Extract structured information.
+
+Extract the following:
+
+1. Staff list:
+  - name: staff full name (remove decorative symbols like ☆)
+  - role: job title if present (e.g., 介護長, 介護主任)
+  - group: group name if present (e.g., Aグループ, Bグループ, Cグループ)
+
+2. Work codes:
+  - List of unique work codes such as 日1, 日2, 公, 入浴, 有, 会議, etc.
+
+Important:
+- Exclude pure numbers (like 1, 0) from names.
+- Exclude generic labels like グループ, 新入職員, パート.
+- Exclude schedule description lines.
+- Focus only on staff and work codes.
+
+Output strictly in JSON with this structure:
+
 {{
   "staff": [
     {{"name": "千明恵美", "role": "介護長", "group": null}},
     {{"name": "浦野裕太", "role": "介護主任", "group": null}},
-    {{"name": "茂木最恵", "role": null, "group": "Aグループ"}},
-    ...
+    {{"name": "茂木最恵", "role": null, "group": "Aグループ"}}
   ],
-  "codes": ["日1", "公", "入浴", ...]
+  "codes": ["日1", "公", "入浴"]
 }}
 
-データ:
+Do not add any explanation, only valid JSON.
+
+Data:
 {text_data}
 """
 
-st.write("### AI に渡すプロンプト（確認用）")
+st.write("### AIに渡すプロンプト（確認用）")
 with st.expander("プロンプトを見る"):
     st.code(prompt)
 
-if st.button("AIでExcelを解析して勤務表を構造化する"):
+
+# ============================
+# AI 解析実行
+# ============================
+if st.button("AIでExcelを解析する"):
     with st.spinner("AIがExcelを解析中..."):
         ai_response = call_ai(prompt)
 
+        # JSONだけ返すようにプロンプトしているが、念のためトリム
+        ai_response_stripped = ai_response.strip()
+        # JSON部分だけを抜き出したい場合はここで工夫してもOK
+
         try:
-            parsed = json.loads(ai_response)
+            parsed = json.loads(ai_response_stripped)
         except json.JSONDecodeError:
-            st.error("AIの返答がJSONとして読み込めませんでした。プロンプトかAI側の設定を確認してください。")
+            st.error("AIの返答がJSONとして解析できませんでした。返答内容を確認してください。")
+            st.text(ai_response)
             st.stop()
 
         staff_list = parsed.get("staff", [])
         codes_list = parsed.get("codes", [])
 
         if not staff_list:
-            st.error("AIから職員情報が取得できませんでした。プロンプトを調整する必要があります。")
+            st.error("AIから職員情報が取得できませんでした。プロンプトの調整が必要です。")
             st.stop()
 
         st.success("AIによるExcel解析が完了しました。")
@@ -124,17 +141,15 @@ if st.button("AIでExcelを解析して勤務表を構造化する"):
         st.json(codes_list)
 
         # ============================
-        # 職員ごとの設定UI（AI抽出結果を元に）
+        # 職員ごとの設定UI
         # ============================
         staff_settings = {}
-
-        st.sidebar.markdown("## 職員ごとの設定（AI抽出済み職員）")
-
-        # 名前リストだけ抜き出し
         staff_names = [s["name"] for s in staff_list if "name" in s]
 
+        st.sidebar.markdown("## 職員ごとの設定")
+
         for name in staff_names:
-            st.sidebar.markdown(f"#### {name} の設定")
+            st.sidebar.markdown(f"#### {name}")
 
             universal = st.sidebar.checkbox(
                 f"{name}: 万能枠",
@@ -169,24 +184,24 @@ if st.button("AIでExcelを解析して勤務表を構造化する"):
             }
 
         # ============================
-        # 最適化ボタン
+        # 最適化
         # ============================
-        if st.button("AI解析結果を使って勤務表を自動生成する"):
+        if st.button("勤務表を自動生成する"):
             with st.spinner("最適化エンジンが勤務表を計算中..."):
-                # solve_schedule は AIからの staff_list と UI設定を受け取る想定
                 result = solve_schedule(staff_list, staff_settings)
 
-                if result is not None:
-                    st.success("勤務表の自動生成が完了しました！")
-                    st.write("### 生成された勤務表（編集不可）")
-                    st.dataframe(result, use_container_width=True)
+                if result is None:
+                    st.error("制約を満たす解が見つかりませんでした。条件を調整してください。")
+                    st.stop()
 
-                    excel_binary = export_excel(result)
+                st.success("勤務表の自動生成が完了しました！")
+                st.write("### 生成された勤務表")
+                st.dataframe(result, use_container_width=True)
 
-                    st.download_button(
-                        "Excelファイルをダウンロード",
-                        excel_binary,
-                        "generated_schedule.xlsx"
-                    )
-                else:
-                    st.error("制約を満たす解が見つかりませんでした。条件を緩和してください。")
+                excel_binary = export_excel(result)
+
+                st.download_button(
+                    "Excelファイルをダウンロード",
+                    excel_binary,
+                    "generated_schedule.xlsx"
+                )
