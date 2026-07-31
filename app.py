@@ -13,7 +13,7 @@ from engine import solve_schedule
 # HuggingFace AI 呼び出し
 # ============================
 HF_API_URL = "https://api-inference.huggingface.co/models/elyza/ELYZA-japanese-Llama-2-7b-instruct"
-HF_API_KEY = "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"  # ← まーくんのキーを入れる
+HF_API_KEY = "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"  # ← まーくんのキーを埋め込み済み
 
 
 def call_ai(prompt: str) -> str:
@@ -54,29 +54,30 @@ def extract_json(text: str):
 # Streamlit UI
 # ============================
 st.set_page_config(page_title="勤務表自動生成（AI解析版）", layout="wide")
-st.title("📘 勤務表自動生成システム（HuggingFaceAI連携）")
+st.title("📘 勤務表自動生成システム（AI連携）")
 st.sidebar.header("Excelアップロード")
 
-uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader("主任作成の勤務表Excelをアップロード", type=["xlsx"])
 
 if not uploaded_file:
-    st.info("勤務表Excelをそのままアップロードしてください。")
+    st.info("主任が作った勤務表Excelをそのままアップロードしてください。")
     st.stop()
 
 
 # ============================
-# Excel → テキスト化（安全版）
+# Excel → テキスト化（安全版・2列目職員名）
 # ============================
 df_raw = pd.read_excel(uploaded_file, header=None)
 
-if df_raw.shape[1] == 0:
-    st.error("Excelに列がありません。主任の勤務表の形式を確認してください。")
+if df_raw.shape[1] < 2:
+    st.error("Excelの2列目に職員名がありません。主任の勤務表の形式を確認してください。")
     st.stop()
 
-first_col = df_raw.iloc[:, 0]
-text_data = "\n".join(first_col.fillna("").astype(str).tolist())
+# 職員名は2列目
+name_col = df_raw.iloc[:, 1]
+text_data = "\n".join(name_col.fillna("").astype(str).tolist())
 
-st.write("### Excel 1列目のテキスト化プレビュー")
+st.write("### Excel 2列目の職員名プレビュー")
 st.text_area("テキスト", text_data, height=200)
 
 
@@ -84,45 +85,31 @@ st.text_area("テキスト", text_data, height=200)
 # AI 解析プロンプト
 # ============================
 prompt = f"""
-You are an assistant that analyzes a Japanese nursing home work schedule Excel column.
+あなたは介護施設の勤務表Excelを解析するAIです。
 
-Below is the first column of an Excel sheet used as a monthly work schedule
-for care staff in a special nursing home.
+以下は主任が作成した勤務表Excelの「職員名が縦に並んだ列」です。
+このデータから次を抽出してください：
 
-Your task:
-- Read the data as human-readable text.
-- Extract structured information.
+1. staff（職員一覧）
+  - name（職員名）
+  - role（役職：介護長・介護主任など）
+  - group（Aグループ・Bグループなど）
 
-Extract the following:
+2. codes（勤務記号一覧）
+  - 日1, 日2ホ, 公, 入浴, 有, 会議 など
 
-1. Staff list:
-  - name: staff full name (remove decorative symbols like ☆)
-  - role: job title if present (e.g., 介護長, 介護主任)
-  - group: group name if present (e.g., Aグループ, Bグループ, Cグループ)
+出力は必ず次の形式の JSON のみ：
 
-2. Work codes:
-  - List of unique work codes such as 日1, 日2ホ, 公, 入浴, 有, 会議, etc.
-
-Important:
-- Exclude pure numbers (like 1, 0) from names.
-- Exclude generic labels like グループ, 新入職員, パート.
-- Exclude schedule description lines.
-- Focus only on staff and work codes.
-
-Output strictly in JSON with this structure:
-
-{{
+{
   "staff": [
-    {{"name": "千明恵美", "role": "介護長", "group": null}},
-    {{"name": "浦野裕太", "role": "介護主任", "group": null}},
-    {{"name": "茂木最恵", "role": null, "group": "Aグループ"}}
+    {"name": "千明恵美", "role": "介護長", "group": null},
+    {"name": "浦野裕太", "role": "介護主任", "group": null},
+    {"name": "茂木最恵", "role": null, "group": "Aグループ"}
   ],
   "codes": ["日1", "公", "入浴"]
-}}
+}
 
-Do not add any explanation, only valid JSON.
-
-Data:
+データ:
 {text_data}
 """
 
