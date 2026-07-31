@@ -27,7 +27,7 @@ def call_ai(prompt: str) -> str:
     }
 
     payload = {
-        "model": "mistral/mistral-7b-instruct",  # ←404対策の正しいモデル名
+        "model": "mistral/mistral-7b-instruct-v0.1",  # ←正しいモデル名（2026年現在）
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "max_tokens": 3000
