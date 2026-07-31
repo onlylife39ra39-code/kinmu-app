@@ -59,6 +59,10 @@ def is_staff_name(text: str) -> bool:
 
     t = text.replace("☆", "").strip()
 
+    # 除外ワード（まーくんの勤務表専用）
+    if t in ["月間予定"]:
+        return False
+
     # 勤務時間の行を除外
     if any(x in t for x in ["～", ":", "勤務時間", "週", "月～金", "土日祝"]):
         return False
