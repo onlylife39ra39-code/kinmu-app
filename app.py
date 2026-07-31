@@ -82,8 +82,8 @@ def is_staff_name(text: str) -> bool:
 # ============================
 # Streamlit UI
 # ============================
-st.set_page_config(page_title="勤務表自動生成（全部入り版）", layout="wide")
-st.title("📘 勤務表自動生成システム（全部入り版）")
+st.set_page_config(page_title="勤務表自動生成（AI勤務エンジン）", layout="wide")
+st.title("📘 勤務表自動生成システム（AI勤務エンジン）")
 st.sidebar.header("Excelアップロード")
 
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
