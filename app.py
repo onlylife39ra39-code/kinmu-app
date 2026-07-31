@@ -133,6 +133,8 @@ for i, n in enumerate(name_col):
         filtered_indices.append(i)
         filtered_names.append(n.replace("☆", ""))
 
+text_data = "\n".join(filtered_names)
+
 # index同期で役職・グループ抽出
 filtered_roles = [roles_full[i] for i in filtered_indices]
 filtered_groups = [groups_full[i] for i in filtered_indices]
