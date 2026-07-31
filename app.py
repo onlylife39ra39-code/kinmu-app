@@ -100,7 +100,7 @@ Extract the following:
   - group: group name if present (e.g., Aグループ, Bグループ, Cグループ)
 
 2. Work codes:
-  - List of unique work codes such as 日1, 日2, 公, 入浴, 有, 会議, etc.
+  - List of unique work codes such as 日1, 日2ホ, 公, 入浴, 有, 会議, etc.
 
 Important:
 - Exclude pure numbers (like 1, 0) from names.
@@ -151,4 +151,83 @@ if st.button("AIでExcelを解析する"):
             st.error("AIから職員情報が取得できませんでした。プロンプトの調整が必要です。")
             st.stop()
 
-       
+        st.success("AIによるExcel解析が完了しました。")
+        st.write("### 抽出された職員一覧（AI解析結果）")
+        st.json(staff_list)
+
+        st.write("### 抽出された勤務記号一覧（AI解析結果）")
+        st.json(codes_list)
+
+        # ============================
+        # 職員ごとの設定UI
+        # ============================
+        staff_settings = {}
+        staff_names = [s["name"] for s in staff_list if "name" in s]
+
+        st.sidebar.markdown("## 職員ごとの設定")
+
+        for name in staff_names:
+            st.sidebar.markdown(f"#### {name}")
+
+            universal = st.sidebar.checkbox(
+                f"{name}: 万能枠",
+                value=False,
+                key=f"universal_{name}"
+            )
+
+            night_count = st.sidebar.number_input(
+                f"{name}: 夜勤数",
+                2, 6, 4,
+                key=f"night_count_{name}"
+            )
+
+            night_double = st.sidebar.checkbox(
+                f"{name}: 夜勤2連勤OK",
+                value=True,
+                key=f"night_double_{name}"
+            )
+
+            ng_list = st.sidebar.multiselect(
+                f"{name}: NGペア（同じグループ勤務禁止）",
+                staff_names,
+                default=[],
+                key=f"ng_{name}"
+            )
+
+            staff_settings[name] = {
+                "universal": universal,
+                "night_count": night_count,
+                "night_double": night_double,
+                "ng_pairs": ng_list,
+            }
+
+        # ============================
+        # engine.py が必要とする空の DataFrame を作成
+        # ============================
+        df = pd.DataFrame(
+            index=staff_names,
+            columns=[f"{i+1}日" for i in range(31)]
+        )
+
+        # ============================
+        # 最適化
+        # ============================
+        if st.button("勤務表を自動生成する"):
+            with st.spinner("最適化エンジンが勤務表を計算中..."):
+                result = solve_schedule(df, staff_settings)
+
+                if result is None:
+                    st.error("制約を満たす解が見つかりませんでした。条件を調整してください。")
+                    st.stop()
+
+                st.success("勤務表の自動生成が完了しました！")
+                st.write("### 生成された勤務表")
+                st.dataframe(result, use_container_width=True)
+
+                excel_binary = export_excel(result)
+
+                st.download_button(
+                    "Excelファイルをダウンロード",
+                    excel_binary,
+                    "generated_schedule.xlsx"
+                )
