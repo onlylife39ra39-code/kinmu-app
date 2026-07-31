@@ -29,7 +29,6 @@ def call_ai(prompt: str) -> str:
     response.raise_for_status()
     data = response.json()
 
-    # HuggingFaceの返答形式に合わせて抽出
     if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
         return data[0]["generated_text"]
     return str(data)
@@ -39,10 +38,6 @@ def call_ai(prompt: str) -> str:
 # JSON抽出（安定化）
 # ============================
 def extract_json(text: str):
-    """
-    AIの返答から JSON 部分だけを安全に抜き出す。
-    文章が混ざっても JSON を抽出できる。
-    """
     json_match = re.search(r'\{[\s\S]*\}', text)
     if not json_match:
         raise ValueError("AI返答にJSONが見つかりませんでした。")
@@ -52,28 +47,34 @@ def extract_json(text: str):
     try:
         return json.loads(json_text)
     except json.JSONDecodeError:
-        raise ValueError("抽出したJSONが壊れています。プロンプトを調整してください。")
+        raise ValueError("抽出したJSONが壊れています。")
 
 
 # ============================
 # Streamlit UI
 # ============================
 st.set_page_config(page_title="勤務表自動生成（AI解析版）", layout="wide")
-st.title("📘 勤務表自動生成システム（HuggingFace無料AI連携）")
+st.title("📘 勤務表自動生成システム（HuggingFaceAI連携）")
 st.sidebar.header("Excelアップロード")
 
-uploaded_file = st.sidebar.file_uploader("主任作成の勤務表Excelをアップロード", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
 if not uploaded_file:
-    st.info("主任が作った勤務表Excelをそのままアップロードしてください。")
+    st.info("勤務表Excelをそのままアップロードしてください。")
     st.stop()
 
 
 # ============================
-# Excel → テキスト化
+# Excel → テキスト化（安全版）
 # ============================
 df_raw = pd.read_excel(uploaded_file, header=None)
-text_data = "\n".join(df_raw[0].astype(str).tolist())
+
+if df_raw.shape[1] == 0:
+    st.error("Excelに列がありません。主任の勤務表の形式を確認してください。")
+    st.stop()
+
+first_col = df_raw.iloc[:, 0]
+text_data = "\n".join(first_col.fillna("").astype(str).tolist())
 
 st.write("### Excel 1列目のテキスト化プレビュー")
 st.text_area("テキスト", text_data, height=200)
