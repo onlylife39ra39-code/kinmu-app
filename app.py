@@ -57,10 +57,10 @@ st.set_page_config(page_title="勤務表自動生成（AI解析版）", layout="
 st.title("📘 勤務表自動生成システム（AI連携）")
 st.sidebar.header("Excelアップロード")
 
-uploaded_file = st.sidebar.file_uploader("主任作成の勤務表Excelをアップロード", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
 if not uploaded_file:
-    st.info("主任が作った勤務表Excelをそのままアップロードしてください。")
+    st.info("勤務表Excelをそのままアップロードしてください。")
     st.stop()
 
 
