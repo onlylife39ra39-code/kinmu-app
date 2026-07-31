@@ -13,7 +13,7 @@ from engine import solve_schedule
 # HuggingFace AI 呼び出し
 # ============================
 HF_API_URL = "https://api-inference.huggingface.co/models/elyza/ELYZA-japanese-Llama-2-7b-instruct"
-HF_API_KEY = "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"  # ← まーくんのキーを埋め込み済み
+HF_API_KEY = "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"  # ← まーくんのキー
 
 
 def call_ai(prompt: str) -> str:
@@ -51,6 +51,30 @@ def extract_json(text: str):
 
 
 # ============================
+# 職員名フィルタ（まーくん勤務表専用）
+# ============================
+def is_staff_name(text: str) -> bool:
+    if not text:
+        return False
+
+    t = text.replace("☆", "").strip()
+
+    # 勤務時間の行を除外
+    if any(x in t for x in ["～", ":", "勤務時間", "週", "月～金", "土日祝"]):
+        return False
+
+    # グループ名・役職名を除外
+    if any(x in t for x in ["グループ", "介護長", "介護主任", "新入職員", "パート"]):
+        return False
+
+    # 漢字・ひらがな・カタカナのみ（数字や記号がない）
+    if re.match(r'^[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]+$', t):
+        return True
+
+    return False
+
+
+# ============================
 # Streamlit UI
 # ============================
 st.set_page_config(page_title="勤務表自動生成（AI解析版）", layout="wide")
@@ -65,7 +89,7 @@ if not uploaded_file:
 
 
 # ============================
-# Excel → テキスト化（安全版・2列目職員名）
+# Excel → 職員名抽出（2列目＋フィルタ）
 # ============================
 df_raw = pd.read_excel(uploaded_file, header=None)
 
@@ -73,16 +97,21 @@ if df_raw.shape[1] < 2:
     st.error("Excelの2列目に職員名がありません。主任の勤務表の形式を確認してください。")
     st.stop()
 
-# 職員名は2列目
 name_col = df_raw.iloc[:, 1]
-text_data = "\n".join(name_col.fillna("").astype(str).tolist())
+raw_names = name_col.fillna("").astype(str).tolist()
 
-st.write("### Excel 2列目の職員名プレビュー")
-st.text_area("テキスト", text_data, height=200)
+# フィルタ適用
+filtered_names = [n.replace("☆", "") for n in raw_names if is_staff_name(n)]
+
+st.write("### 抽出された職員名（フィルタ後）")
+st.json(filtered_names)
+
+# AIに渡すテキストは職員名だけ
+text_data = "\n".join(filtered_names)
 
 
 # ============================
-# AI 解析プロンプト
+# AI 解析プロンプト（{} → {{ }}）
 # ============================
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
@@ -100,14 +129,14 @@ prompt = f"""
 
 出力は必ず次の形式の JSON のみ：
 
-{
+{{
   "staff": [
-    {"name": "千明恵美", "role": "介護長", "group": null},
-    {"name": "浦野裕太", "role": "介護主任", "group": null},
-    {"name": "茂木最恵", "role": null, "group": "Aグループ"}
+    {{ "name": "千明恵美", "role": "介護長", "group": null }},
+    {{ "name": "浦野裕太", "role": "介護主任", "group": null }},
+    {{ "name": "茂木最恵", "role": null, "group": "Aグループ" }}
   ],
   "codes": ["日1", "公", "入浴"]
-}
+}}
 
 データ:
 {text_data}
