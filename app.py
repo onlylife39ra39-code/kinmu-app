@@ -29,7 +29,8 @@ def call_ai(prompt: str) -> str:
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.2,
-        "max_output_tokens": 1024   # ← Groq仕様に修正！
+        "max_output_tokens": 1024,      # ← Groq仕様に修正済み
+        "response_format": {"type": "text"}  # ← 400対策（必須）
     }
 
     response = requests.post(GROQ_API_URL, headers=headers, json=payload)
