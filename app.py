@@ -10,26 +10,33 @@ from io_utils import export_excel
 from engine import solve_schedule
 
 # ============================
-# OpenRouter API
+# OpenRouter API（安全版）
 # ============================
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct"
-OPENROUTER_API_KEY = "YOUR_OPENROUTER_API_KEY"  # ←ここは自分のキーに差し替え
-
 
 def call_ai(prompt: str) -> str:
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
+
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": "mistral/mistral-7b-instruct",  # 無料で安定
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
-        "max_tokens": 8000
+        "max_tokens": 4000
     }
+
     resp = requests.post(OPENROUTER_URL, headers=headers, json=payload)
-    resp.raise_for_status()
+
+    # raise_for_status() を使わず安全に処理
+    if resp.status_code != 200:
+        st.error(f"OpenRouter API Error: {resp.status_code}")
+        st.code(resp.text)
+        return None
+
     data = resp.json()
     return data["choices"][0]["message"]["content"]
 
@@ -41,8 +48,7 @@ def extract_json(text: str):
     m = re.search(r'\{[\s\S]*\}', text)
     if not m:
         raise ValueError("AI返答にJSONが見つかりませんでした。")
-    js = m.group(0)
-    return json.loads(js)
+    return json.loads(m.group(0))
 
 
 # ============================
@@ -60,7 +66,6 @@ def is_staff_name(text: str) -> bool:
     if any(x in t for x in ["グループ", "介護長", "介護主任", "新入職員", "パート"]):
         return False
 
-    # ほぼ日本語だけ
     if re.match(r'^[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]+$', t):
         return True
     return False
@@ -76,7 +81,6 @@ def find_last_role_above(index, role_col):
             return r
     return None
 
-
 def find_last_group_above(index, group_col):
     for i in range(index, -1, -1):
         g = group_col[i]
@@ -86,17 +90,15 @@ def find_last_group_above(index, group_col):
 
 
 # ============================
-# 永続保存用 JSON
+# 永続保存 JSON
 # ============================
 SETTINGS_FILE = "staff_settings.json"
-
 
 def load_staff_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
-
 
 def save_staff_settings(settings: dict):
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -116,6 +118,7 @@ if not uploaded_file:
     st.info("勤務表Excelをアップロードしてください。")
     st.stop()
 
+
 # ============================
 # Excel読み込み
 # ============================
@@ -124,6 +127,7 @@ df_raw = pd.read_excel(uploaded_file, header=None)
 name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
 group_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
 role_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
+
 
 # ============================
 # 職員名フィルタ & index同期
@@ -144,6 +148,7 @@ filtered_groups = [find_last_group_above(i, group_col) for i in filtered_indices
 
 st.write("### 抽出された職員名（フィルタ後）")
 st.json(filtered_names)
+
 
 # ============================
 # AIプロンプト
@@ -171,8 +176,12 @@ prompt = f"""
 with st.expander("AIに渡すプロンプト（確認用）"):
     st.code(prompt)
 
-# 既存の永続設定を読み込み
+
+# ============================
+# 永続設定読み込み
+# ============================
 persistent_settings = load_staff_settings()
+
 
 # ============================
 # AI解析
@@ -180,6 +189,9 @@ persistent_settings = load_staff_settings()
 if st.button("AIでExcelを解析する"):
     with st.spinner("AIがExcelを解析中..."):
         ai_response = call_ai(prompt)
+
+        if ai_response is None:
+            st.stop()
 
         try:
             parsed = extract_json(ai_response)
@@ -191,7 +203,7 @@ if st.button("AIでExcelを解析する"):
         staff_list = parsed.get("staff", [])
         codes_list = parsed.get("codes", [])
 
-        # AIのnameに対して、index同期した役職・グループを上書き
+        # index同期した役職・グループを上書き
         for idx, s in enumerate(staff_list):
             s["role"] = filtered_roles[idx]
             s["group"] = filtered_groups[idx]
@@ -204,20 +216,18 @@ if st.button("AIでExcelを解析する"):
         st.json(codes_list)
 
         # ============================
-        # 職員ごとの設定（永続保存付き）
+        # 職員設定（永続保存）
         # ============================
         staff_settings = persistent_settings.copy()
         staff_names = [s["name"] for s in staff_list]
 
         st.sidebar.markdown("## 職員ごとの設定（永続保存）")
 
-        # 削除用チェックボックス
         delete_targets = []
 
         for idx, s in enumerate(staff_list):
             name = s["name"]
 
-            # 既存設定があればそれを初期値に
             base = staff_settings.get(name, {})
             base_role = base.get("role", s["role"])
             base_group = base.get("group", s["group"])
@@ -230,13 +240,13 @@ if st.button("AIでExcelを解析する"):
 
             group = st.sidebar.text_input(
                 f"{name}: グループ",
-                value=base_group if base_group is not None else "",
+                value=base_group if base_group else "",
                 key=f"group_input_{name}"
             )
 
             role = st.sidebar.text_input(
                 f"{name}: 役職",
-                value=base_role if base_role is not None else "",
+                value=base_role if base_role else "",
                 key=f"role_input_{name}"
             )
 
@@ -265,7 +275,6 @@ if st.button("AIでExcelを解析する"):
                 key=f"ng_{name}"
             )
 
-            # 退職などで削除したい場合
             delete_flag = st.sidebar.checkbox(
                 f"{name}: この職員を削除（退職など）",
                 value=False,
@@ -274,7 +283,6 @@ if st.button("AIでExcelを解析する"):
             if delete_flag:
                 delete_targets.append(name)
 
-            # 削除対象でなければ設定を保存用 dict に反映
             if name not in delete_targets:
                 staff_settings[name] = {
                     "role": role if role else None,
@@ -285,12 +293,10 @@ if st.button("AIでExcelを解析する"):
                     "ng_pairs": ng_list,
                 }
 
-        # 削除対象を永続設定からも消す
         for name in delete_targets:
             if name in staff_settings:
                 del staff_settings[name]
 
-        # 設定を永続保存
         save_staff_settings(staff_settings)
         st.success("職員設定を保存しました（永続保存）。")
 
