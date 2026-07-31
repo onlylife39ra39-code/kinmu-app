@@ -10,28 +10,33 @@ from engine import solve_schedule
 
 
 # ============================
-# HuggingFace AI 呼び出し
+# Groq API（無料・高速・安定）
 # ============================
-HF_API_URL = "https://api-inference.huggingface.co/models/google/gemma-2-2b-it"
-HF_API_KEY = "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"  # ← まーくんのキー
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama3-8b-8192"   # 日本語も強い高速モデル
+GROQ_API_KEY = "gsk_YourGroqKeyHere"  # ← Groq の無料キーを入れる（後で説明する）
 
 
 def call_ai(prompt: str) -> str:
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 1024,
-            "temperature": 0.2
-        }
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
     }
-    response = requests.post(HF_API_URL, headers=headers, json=payload)
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 1024
+    }
+
+    response = requests.post(GROQ_API_URL, headers=headers, json=payload)
     response.raise_for_status()
     data = response.json()
 
-    if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
-        return data[0]["generated_text"]
-    return str(data)
+    return data["choices"][0]["message"]["content"]
 
 
 # ============================
@@ -59,7 +64,7 @@ def is_staff_name(text: str) -> bool:
 
     t = text.replace("☆", "").strip()
 
-    # 除外ワード（まーくんの勤務表専用）
+    # 除外ワード
     if t in ["月間予定"]:
         return False
 
@@ -71,7 +76,7 @@ def is_staff_name(text: str) -> bool:
     if any(x in t for x in ["グループ", "介護長", "介護主任", "新入職員", "パート"]):
         return False
 
-    # 漢字・ひらがな・カタカナのみ（数字や記号がない）
+    # 漢字・ひらがな・カタカナのみ
     if re.match(r'^[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]+$', t):
         return True
 
@@ -81,8 +86,8 @@ def is_staff_name(text: str) -> bool:
 # ============================
 # Streamlit UI
 # ============================
-st.set_page_config(page_title="勤務表自動生成（AI解析版）", layout="wide")
-st.title("📘 勤務表自動生成システム（AI連携）")
+st.set_page_config(page_title="勤務表自動生成（Groq AI版）", layout="wide")
+st.title("📘 勤務表自動生成システム（Groq AI連携）")
 st.sidebar.header("Excelアップロード")
 
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
@@ -104,13 +109,11 @@ if df_raw.shape[1] < 2:
 name_col = df_raw.iloc[:, 1]
 raw_names = name_col.fillna("").astype(str).tolist()
 
-# フィルタ適用
 filtered_names = [n.replace("☆", "") for n in raw_names if is_staff_name(n)]
 
 st.write("### 抽出された職員名（フィルタ後）")
 st.json(filtered_names)
 
-# AIに渡すテキストは職員名だけ
 text_data = "\n".join(filtered_names)
 
 
@@ -152,7 +155,7 @@ with st.expander("プロンプトを見る"):
 
 
 # ============================
-# AI 解析実行
+# AI 解析実行（Groq）
 # ============================
 if st.button("AIでExcelを解析する"):
     with st.spinner("AIがExcelを解析中..."):
@@ -172,7 +175,7 @@ if st.button("AIでExcelを解析する"):
             st.error("AIから職員情報が取得できませんでした。プロンプトの調整が必要です。")
             st.stop()
 
-        st.success("AIによるExcel解析が完了しました。")
+        st.success("AIによるExcel解析が完了しました！")
         st.write("### 抽出された職員一覧（AI解析結果）")
         st.json(staff_list)
 
