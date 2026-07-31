@@ -15,8 +15,11 @@ from engine import solve_schedule
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 def call_ai(prompt: str) -> str:
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+    if not OPENROUTER_API_KEY:
+        st.error("OpenRouter APIキーが読み込めていません（Secretsに設定してください）")
+        return None
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -24,15 +27,15 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     }
 
     payload = {
-        "model": "mistral/mistral-7b-instruct",  # 無料で安定
+        "model": "mistralai/mistral-7b-instruct",  # ←無料で安定するモデル
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
-        "max_tokens": 4000
+        "max_tokens": 3000
     }
 
     resp = requests.post(OPENROUTER_URL, headers=headers, json=payload)
 
-    # raise_for_status() を使わず安全に処理
+    # raise_for_status() は使わず安全に処理
     if resp.status_code != 200:
         st.error(f"OpenRouter API Error: {resp.status_code}")
         st.code(resp.text)
@@ -67,6 +70,7 @@ def is_staff_name(text: str) -> bool:
     if any(x in t for x in ["グループ", "介護長", "介護主任", "新入職員", "パート"]):
         return False
 
+    # 日本語だけの名前
     if re.match(r'^[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]+$', t):
         return True
     return False
