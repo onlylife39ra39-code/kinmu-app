@@ -10,36 +10,39 @@ from io_utils import export_excel
 from engine import solve_schedule
 
 # ============================
-# DeepSeek API（無料・安定）
+# HuggingFace API（無料・カード不要）
 # ============================
-DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+HF_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
 
 def call_ai(prompt: str) -> str:
-    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+    HF_API_KEY = os.getenv("HF_API_KEY")
 
-    if not DEEPSEEK_API_KEY:
-        st.error("DeepSeek APIキーが読み込めていません（Secretsに設定してください）")
+    if not HF_API_KEY:
+        st.error("HuggingFace APIキーが読み込めていません（Secretsに設定してください）")
         return None
 
     headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json"
     }
 
     payload = {
-        "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2
+        "inputs": prompt
     }
 
-    resp = requests.post(DEEPSEEK_URL, headers=headers, json=payload)
+    resp = requests.post(HF_URL, headers=headers, json=payload)
 
     if resp.status_code != 200:
-        st.error(f"DeepSeek API Error: {resp.status_code}")
+        st.error(f"HuggingFace API Error: {resp.status_code}")
         st.code(resp.text)
         return None
 
-    return resp.json()["choices"][0]["message"]["content"]
+    try:
+        return resp.json()[0]["generated_text"]
+    except Exception:
+        st.error("AI返答の解析に失敗しました（JSON形式が不正）")
+        st.code(resp.text)
+        return None
 
 
 # ============================
