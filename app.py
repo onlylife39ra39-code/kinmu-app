@@ -27,7 +27,7 @@ def call_ai(prompt: str) -> str:
     }
 
     payload = {
-        "model": "mistral/mistral-7b-instruct-v0.1",  # ←正しいモデル名（2026年現在）
+        "model": "mistralai/mistral-7b-instruct:free",  # ←正しいモデル名（2026年8月時点）
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "max_tokens": 3000
@@ -35,7 +35,6 @@ def call_ai(prompt: str) -> str:
 
     resp = requests.post(OPENROUTER_URL, headers=headers, json=payload)
 
-    # raise_for_status() を使わず安全に処理
     if resp.status_code != 200:
         st.error(f"OpenRouter API Error: {resp.status_code}")
         st.code(resp.text)
