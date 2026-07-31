@@ -29,7 +29,7 @@ def call_ai(prompt: str) -> str:
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.2,
-        "max_tokens": 1024
+        "max_tokens": 16000
     }
 
     response = requests.post(OPENROUTER_URL, headers=headers, json=payload)
