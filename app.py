@@ -14,7 +14,7 @@ from engine import solve_schedule
 # ============================
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama3-8b-8192"   # 日本語も強い高速モデル
-GROQ_API_KEY = "gsk_YourGroqKeyHere"  # ← Groq の無料キーを入れる（後で説明する）
+GROQ_API_KEY = "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"  # ← Groq の無料キーを入れる（後で説明する）
 
 
 def call_ai(prompt: str) -> str:
