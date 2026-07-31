@@ -10,38 +10,36 @@ from io_utils import export_excel
 from engine import solve_schedule
 
 # ============================
-# OpenRouter API（安全版）
+# DeepSeek API（無料・安定）
 # ============================
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 
 def call_ai(prompt: str) -> str:
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-    if not OPENROUTER_API_KEY:
-        st.error("OpenRouter APIキーが読み込めていません（Secretsに設定してください）")
+    if not DEEPSEEK_API_KEY:
+        st.error("DeepSeek APIキーが読み込めていません（Secretsに設定してください）")
         return None
 
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
     }
 
     payload = {
-        "model": "mistralai/mistral-7b-instruct",  # ←2026年8月時点で有効な無料モデル
+        "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
-        "max_tokens": 3000
+        "temperature": 0.2
     }
 
-    resp = requests.post(OPENROUTER_URL, headers=headers, json=payload)
+    resp = requests.post(DEEPSEEK_URL, headers=headers, json=payload)
 
     if resp.status_code != 200:
-        st.error(f"OpenRouter API Error: {resp.status_code}")
+        st.error(f"DeepSeek API Error: {resp.status_code}")
         st.code(resp.text)
         return None
 
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    return resp.json()["choices"][0]["message"]["content"]
 
 
 # ============================
