@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import json
 import requests
+import re
 
 from io_utils import export_excel
 from engine import solve_schedule
@@ -12,7 +13,7 @@ from engine import solve_schedule
 # HuggingFace AI 呼び出し
 # ============================
 HF_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Llama-3-8B-Instruct"
-HF_API_KEY = "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"  # ← ここにまーくんのキー
+HF_API_KEY = "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"  # ← まーくんのキーを入れる
 
 
 def call_ai(prompt: str) -> str:
@@ -27,10 +28,31 @@ def call_ai(prompt: str) -> str:
     response = requests.post(HF_API_URL, headers=headers, json=payload)
     response.raise_for_status()
     data = response.json()
-    # テキスト生成系モデルの返り値形式に合わせて抽出
+
+    # HuggingFaceの返答形式に合わせて抽出
     if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
         return data[0]["generated_text"]
     return str(data)
+
+
+# ============================
+# JSON抽出（安定化）
+# ============================
+def extract_json(text: str):
+    """
+    AIの返答から JSON 部分だけを安全に抜き出す。
+    文章が混ざっても JSON を抽出できる。
+    """
+    json_match = re.search(r'\{[\s\S]*\}', text)
+    if not json_match:
+        raise ValueError("AI返答にJSONが見つかりませんでした。")
+
+    json_text = json_match.group(0)
+
+    try:
+        return json.loads(json_text)
+    except json.JSONDecodeError:
+        raise ValueError("抽出したJSONが壊れています。プロンプトを調整してください。")
 
 
 # ============================
@@ -115,14 +137,10 @@ if st.button("AIでExcelを解析する"):
     with st.spinner("AIがExcelを解析中..."):
         ai_response = call_ai(prompt)
 
-        # JSONだけ返すようにプロンプトしているが、念のためトリム
-        ai_response_stripped = ai_response.strip()
-        # JSON部分だけを抜き出したい場合はここで工夫してもOK
-
         try:
-            parsed = json.loads(ai_response_stripped)
-        except json.JSONDecodeError:
-            st.error("AIの返答がJSONとして解析できませんでした。返答内容を確認してください。")
+            parsed = extract_json(ai_response)
+        except Exception as e:
+            st.error(f"AI返答の解析に失敗しました: {e}")
             st.text(ai_response)
             st.stop()
 
@@ -133,75 +151,4 @@ if st.button("AIでExcelを解析する"):
             st.error("AIから職員情報が取得できませんでした。プロンプトの調整が必要です。")
             st.stop()
 
-        st.success("AIによるExcel解析が完了しました。")
-        st.write("### 抽出された職員一覧（AI解析結果）")
-        st.json(staff_list)
-
-        st.write("### 抽出された勤務記号一覧（AI解析結果）")
-        st.json(codes_list)
-
-        # ============================
-        # 職員ごとの設定UI
-        # ============================
-        staff_settings = {}
-        staff_names = [s["name"] for s in staff_list if "name" in s]
-
-        st.sidebar.markdown("## 職員ごとの設定")
-
-        for name in staff_names:
-            st.sidebar.markdown(f"#### {name}")
-
-            universal = st.sidebar.checkbox(
-                f"{name}: 万能枠",
-                value=False,
-                key=f"universal_{name}"
-            )
-
-            night_count = st.sidebar.number_input(
-                f"{name}: 夜勤数",
-                2, 6, 4,
-                key=f"night_count_{name}"
-            )
-
-            night_double = st.sidebar.checkbox(
-                f"{name}: 夜勤2連勤OK",
-                value=True,
-                key=f"night_double_{name}"
-            )
-
-            ng_list = st.sidebar.multiselect(
-                f"{name}: NGペア（同じグループ勤務禁止）",
-                staff_names,
-                default=[],
-                key=f"ng_{name}"
-            )
-
-            staff_settings[name] = {
-                "universal": universal,
-                "night_count": night_count,
-                "night_double": night_double,
-                "ng_pairs": ng_list,
-            }
-
-        # ============================
-        # 最適化
-        # ============================
-        if st.button("勤務表を自動生成する"):
-            with st.spinner("最適化エンジンが勤務表を計算中..."):
-                result = solve_schedule(staff_list, staff_settings)
-
-                if result is None:
-                    st.error("制約を満たす解が見つかりませんでした。条件を調整してください。")
-                    st.stop()
-
-                st.success("勤務表の自動生成が完了しました！")
-                st.write("### 生成された勤務表")
-                st.dataframe(result, use_container_width=True)
-
-                excel_binary = export_excel(result)
-
-                st.download_button(
-                    "Excelファイルをダウンロード",
-                    excel_binary,
-                    "generated_schedule.xlsx"
-                )
+       
