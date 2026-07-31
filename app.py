@@ -27,7 +27,7 @@ def call_ai(prompt: str) -> str:
     }
 
     payload = {
-        "model": "mistralai/mistral-7b-instruct",  # ←無料で安定するモデル
+        "model": "mistral/mistral-7b-instruct",  # ←404対策の正しいモデル名
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "max_tokens": 3000
@@ -35,7 +35,7 @@ def call_ai(prompt: str) -> str:
 
     resp = requests.post(OPENROUTER_URL, headers=headers, json=payload)
 
-    # raise_for_status() は使わず安全に処理
+    # raise_for_status() を使わず安全に処理
     if resp.status_code != 200:
         st.error(f"OpenRouter API Error: {resp.status_code}")
         st.code(resp.text)
@@ -70,7 +70,6 @@ def is_staff_name(text: str) -> bool:
     if any(x in t for x in ["グループ", "介護長", "介護主任", "新入職員", "パート"]):
         return False
 
-    # 日本語だけの名前
     if re.match(r'^[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]+$', t):
         return True
     return False
@@ -147,7 +146,6 @@ for i, n in enumerate(name_col):
 
 text_data = "\n".join(filtered_names)
 
-# indexごとに「上にさかのぼって」役職・グループ取得
 filtered_roles = [find_last_role_above(i, role_col) for i in filtered_indices]
 filtered_groups = [find_last_group_above(i, group_col) for i in filtered_indices]
 
@@ -208,7 +206,6 @@ if st.button("AIでExcelを解析する"):
         staff_list = parsed.get("staff", [])
         codes_list = parsed.get("codes", [])
 
-        # index同期した役職・グループを上書き
         for idx, s in enumerate(staff_list):
             s["role"] = filtered_roles[idx]
             s["group"] = filtered_groups[idx]
@@ -220,9 +217,6 @@ if st.button("AIでExcelを解析する"):
         st.write("### 勤務記号一覧")
         st.json(codes_list)
 
-        # ============================
-        # 職員設定（永続保存）
-        # ============================
         staff_settings = persistent_settings.copy()
         staff_names = [s["name"] for s in staff_list]
 
@@ -305,18 +299,12 @@ if st.button("AIでExcelを解析する"):
         save_staff_settings(staff_settings)
         st.success("職員設定を保存しました（永続保存）。")
 
-        # ============================
-        # 空のDataFrame作成
-        # ============================
         active_staff_names = list(staff_settings.keys())
         df = pd.DataFrame(
             index=active_staff_names,
             columns=[f"{i+1}日" for i in range(31)]
         )
 
-        # ============================
-        # 最適化エンジン
-        # ============================
         if st.button("勤務表を自動生成する"):
             with st.spinner("最適化エンジンが勤務表を計算中..."):
                 result = solve_schedule(df, staff_settings)
