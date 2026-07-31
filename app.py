@@ -10,7 +10,7 @@ from engine import solve_schedule
 
 
 # ============================
-# OpenRouter API（Cloudで安定）
+# OpenRouter API
 # ============================
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct"
@@ -25,9 +25,7 @@ def call_ai(prompt: str) -> str:
 
     payload = {
         "model": OPENROUTER_MODEL,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "max_tokens": 16000
     }
@@ -35,20 +33,17 @@ def call_ai(prompt: str) -> str:
     response = requests.post(OPENROUTER_URL, headers=headers, json=payload)
     response.raise_for_status()
     data = response.json()
-
     return data["choices"][0]["message"]["content"]
 
 
 # ============================
-# JSON抽出（安定化）
+# JSON抽出
 # ============================
 def extract_json(text: str):
     json_match = re.search(r'\{[\s\S]*\}', text)
     if not json_match:
         raise ValueError("AI返答にJSONが見つかりませんでした。")
-
     json_text = json_match.group(0)
-
     try:
         return json.loads(json_text)
     except json.JSONDecodeError:
@@ -56,7 +51,7 @@ def extract_json(text: str):
 
 
 # ============================
-# 職員名フィルタ（まーくん勤務表専用）
+# 職員名フィルタ
 # ============================
 def is_staff_name(text: str) -> bool:
     if not text:
@@ -83,13 +78,13 @@ def is_staff_name(text: str) -> bool:
 # Streamlit UI
 # ============================
 st.set_page_config(page_title="勤務表自動生成（AI勤務エンジン）", layout="wide")
-st.title("📘 勤務表自動生成システム（AI勤務エンジン）")
+st.title("📘 勤務表自動生成（AI勤務エンジン）")
 st.sidebar.header("Excelアップロード")
 
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
 if not uploaded_file:
-    st.info("勤務表Excelをそのままアップロードしてください。")
+    st.info("勤務表Excelをアップロードしてください。")
     st.stop()
 
 
@@ -97,10 +92,6 @@ if not uploaded_file:
 # Excel読み込み
 # ============================
 df_raw = pd.read_excel(uploaded_file, header=None)
-
-if df_raw.shape[1] < 2:
-    st.error("Excelの2列目に職員名がありません。主任の勤務表の形式を確認してください。")
-    st.stop()
 
 name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
 group_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
@@ -110,39 +101,49 @@ role_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
 # ============================
 # グループ自動補正（セル結合対応）
 # ============================
-groups = []
+groups_full = []
 current_group = None
 
 for g in group_col:
     if "グループ" in g:
         current_group = g
-    groups.append(current_group)
+    groups_full.append(current_group)
 
 
 # ============================
 # 役職自動補正（セル結合対応）
 # ============================
-roles = []
+roles_full = []
 current_role = None
 
 for r in role_col:
     if any(x in r for x in ["介護長", "介護主任", "長", "主任"]):
         current_role = r
-    roles.append(current_role)
+    roles_full.append(current_role)
 
 
 # ============================
-# 職員名フィルタ
+# 職員名フィルタ（index同期）
 # ============================
-filtered_names = [n.replace("☆", "") for n in name_col if is_staff_name(n)]
-text_data = "\n".join(filtered_names)
+filtered_indices = []
+filtered_names = []
+
+for i, n in enumerate(name_col):
+    if is_staff_name(n):
+        filtered_indices.append(i)
+        filtered_names.append(n.replace("☆", ""))
+
+# index同期で役職・グループ抽出
+filtered_roles = [roles_full[i] for i in filtered_indices]
+filtered_groups = [groups_full[i] for i in filtered_indices]
+
 
 st.write("### 抽出された職員名（フィルタ後）")
 st.json(filtered_names)
 
 
 # ============================
-# AIプロンプト（JSONのみ返す）
+# AIプロンプト
 # ============================
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
@@ -159,15 +160,6 @@ prompt = f"""
 
 重要：
 - 出力は JSON のみとし、説明文・Pythonコード・文章は一切含めないでください。
-
-例：
-
-{{
-  "staff": [
-    {{ "name": "千明恵美", "role": "介護長", "group": "Aグループ" }}
-  ],
-  "codes": ["日1", "公"]
-}}
 
 データ:
 {text_data}
@@ -194,14 +186,13 @@ if st.button("AIでExcelを解析する"):
         staff_list = parsed.get("staff", [])
         codes_list = parsed.get("codes", [])
 
-        # Python側の自動補正で上書き
-        for i, s in enumerate(staff_list):
-            s["role"] = roles[i]
-            s["group"] = groups[i]
+        # index同期した役職・グループを上書き
+        for idx, s in enumerate(staff_list):
+            s["role"] = filtered_roles[idx]
+            s["group"] = filtered_groups[idx]
 
         st.success("AIによるExcel解析が完了しました！")
-
-        st.write("### 職員一覧（AI＋自動補正）")
+        st.write("### 職員一覧（AI＋フィルタ同期＋自動補正）")
         st.json(staff_list)
 
         st.write("### 勤務記号一覧")
@@ -215,7 +206,7 @@ if st.button("AIでExcelを解析する"):
 
         st.sidebar.markdown("## 職員ごとの設定（永続化）")
 
-        for i, s in enumerate(staff_list):
+        for idx, s in enumerate(staff_list):
             name = s["name"]
 
             # --- グループ ---
