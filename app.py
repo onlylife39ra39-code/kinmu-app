@@ -29,7 +29,7 @@ def call_ai(prompt: str) -> str:
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.2,
-        "max_tokens": 16000
+        "max_tokens": 16000  # 長いJSONでも途切れないように多め
     }
 
     response = requests.post(OPENROUTER_URL, headers=headers, json=payload)
@@ -118,7 +118,7 @@ text_data = "\n".join(filtered_names)
 
 
 # ============================
-# AI 解析プロンプト
+# AI 解析プロンプト（JSONのみ返させる版）
 # ============================
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
@@ -134,7 +134,9 @@ prompt = f"""
 2. codes（勤務記号一覧）
   - 日1, 日2ホ, 公, 入浴, 有, 会議 など
 
-出力は必ず次の形式の JSON のみ：
+重要：
+- 出力は JSON のみとし、説明文・Pythonコード・文章は一切含めないでください。
+- 必ず次の形式で返してください（キー名・構造を厳守）：
 
 {{
   "staff": [
@@ -144,6 +146,8 @@ prompt = f"""
   ],
   "codes": ["日1", "公", "入浴"]
 }}
+
+上記はあくまで例です。実際のデータに基づいて staff と codes を生成してください。
 
 データ:
 {text_data}
