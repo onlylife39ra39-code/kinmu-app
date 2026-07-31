@@ -12,7 +12,7 @@ from engine import solve_schedule
 # ============================
 # HuggingFace AI 呼び出し
 # ============================
-HF_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Llama-3-8B-Instruct"
+HF_API_URL = "https://api-inference.huggingface.co/models/elyza/ELYZA-japanese-Llama-2-7b-instruct"
 HF_API_KEY = "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"  # ← まーくんのキーを入れる
 
 
