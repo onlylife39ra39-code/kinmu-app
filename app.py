@@ -10,30 +10,29 @@ from engine import solve_schedule
 
 
 # ============================
-# Groq API（無料・高速・安定）
+# OpenRouter API（Cloudで安定）
 # ============================
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama3-8b-8192"   # 日本語も強い高速モデル
-GROQ_API_KEY = "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"  # ← まーくんのキー
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct"  # 日本語強い高速モデル
+OPENROUTER_API_KEY = "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"
 
 
 def call_ai(prompt: str) -> str:
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
 
     payload = {
-        "model": GROQ_MODEL,
+        "model": OPENROUTER_MODEL,
         "messages": [
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.2,
-        "max_output_tokens": 1024,      # ← Groq仕様に修正済み
-        "response_format": {"type": "text"}  # ← 400対策（必須）
+        "max_tokens": 1024
     }
 
-    response = requests.post(GROQ_API_URL, headers=headers, json=payload)
+    response = requests.post(OPENROUTER_URL, headers=headers, json=payload)
     response.raise_for_status()
     data = response.json()
 
@@ -87,8 +86,8 @@ def is_staff_name(text: str) -> bool:
 # ============================
 # Streamlit UI
 # ============================
-st.set_page_config(page_title="勤務表自動生成（Groq AI版）", layout="wide")
-st.title("📘 勤務表自動生成システム（Groq AI連携）")
+st.set_page_config(page_title="勤務表自動生成（OpenRouter AI版）", layout="wide")
+st.title("📘 勤務表自動生成システム（OpenRouter AI連携）")
 st.sidebar.header("Excelアップロード")
 
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
@@ -119,7 +118,7 @@ text_data = "\n".join(filtered_names)
 
 
 # ============================
-# AI 解析プロンプト（{} → {{ }}）
+# AI 解析プロンプト
 # ============================
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
@@ -156,7 +155,7 @@ with st.expander("プロンプトを見る"):
 
 
 # ============================
-# AI 解析実行（Groq）
+# AI 解析実行（OpenRouter）
 # ============================
 if st.button("AIでExcelを解析する"):
     with st.spinner("AIがExcelを解析中..."):
