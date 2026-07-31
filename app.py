@@ -15,7 +15,7 @@ from engine import solve_schedule
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 def call_ai(prompt: str) -> str:
-    OPENROUTER_API_KEY = os.getenv("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")
+    OPENROUTER_API_KEY = ("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")
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
