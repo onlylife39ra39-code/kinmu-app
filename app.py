@@ -2,11 +2,8 @@
 import streamlit as st
 import pandas as pd
 
-from io import BytesIO
-from io import StringIO
-
-# 自作 io.py を読み込む
-from io import load_excel, export_excel
+# io.py → io_utils.py に変更した前提
+from io_utils import load_excel, export_excel
 
 # 最適化エンジン
 from engine import solve_schedule
