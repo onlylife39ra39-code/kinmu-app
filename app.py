@@ -27,7 +27,7 @@ def call_ai(prompt: str) -> str:
     }
 
     payload = {
-        "model": "mistralai/mistral-7b-instruct:free",  # ←正しいモデル名（2026年8月時点）
+        "model": "mistralai/mistral-7b-instruct",  # ←2026年8月時点で有効な無料モデル
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
         "max_tokens": 3000
