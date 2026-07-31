@@ -4,17 +4,17 @@ import pandas as pd
 import json
 import requests
 import re
+import os
 
 from io_utils import export_excel
 from engine import solve_schedule
-
 
 # ============================
 # OpenRouter API
 # ============================
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct"
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "YOUR_OPENROUTER_API_KEY"  # ←ここは自分のキーに差し替え
 
 
 def call_ai(prompt: str) -> str:
@@ -22,17 +22,15 @@ def call_ai(prompt: str) -> str:
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
-
     payload = {
         "model": OPENROUTER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
-        "max_tokens": 16000
+        "max_tokens": 8000
     }
-
-    response = requests.post(OPENROUTER_URL, headers=headers, json=payload)
-    response.raise_for_status()
-    data = response.json()
+    resp = requests.post(OPENROUTER_URL, headers=headers, json=payload)
+    resp.raise_for_status()
+    data = resp.json()
     return data["choices"][0]["message"]["content"]
 
 
@@ -40,14 +38,11 @@ def call_ai(prompt: str) -> str:
 # JSON抽出
 # ============================
 def extract_json(text: str):
-    json_match = re.search(r'\{[\s\S]*\}', text)
-    if not json_match:
+    m = re.search(r'\{[\s\S]*\}', text)
+    if not m:
         raise ValueError("AI返答にJSONが見つかりませんでした。")
-    json_text = json_match.group(0)
-    try:
-        return json.loads(json_text)
-    except json.JSONDecodeError:
-        raise ValueError("抽出したJSONが壊れています。")
+    js = m.group(0)
+    return json.loads(js)
 
 
 # ============================
@@ -56,22 +51,56 @@ def extract_json(text: str):
 def is_staff_name(text: str) -> bool:
     if not text:
         return False
-
     t = text.replace("☆", "").strip()
 
     if t in ["月間予定"]:
         return False
-
     if any(x in t for x in ["～", ":", "勤務時間", "週", "月～金", "土日祝"]):
         return False
-
     if any(x in t for x in ["グループ", "介護長", "介護主任", "新入職員", "パート"]):
         return False
 
+    # ほぼ日本語だけ
     if re.match(r'^[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]+$', t):
         return True
-
     return False
+
+
+# ============================
+# 役職・グループを「上にさかのぼって」取得
+# ============================
+def find_last_role_above(index, role_col):
+    for i in range(index, -1, -1):
+        r = role_col[i]
+        if any(x in r for x in ["介護長", "介護主任", "長", "主任"]):
+            return r
+    return None
+
+
+def find_last_group_above(index, group_col):
+    for i in range(index, -1, -1):
+        g = group_col[i]
+        if "グループ" in g:
+            return g
+    return None
+
+
+# ============================
+# 永続保存用 JSON
+# ============================
+SETTINGS_FILE = "staff_settings.json"
+
+
+def load_staff_settings():
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def save_staff_settings(settings: dict):
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
 
 
 # ============================
@@ -79,14 +108,13 @@ def is_staff_name(text: str) -> bool:
 # ============================
 st.set_page_config(page_title="勤務表自動生成（AI勤務エンジン）", layout="wide")
 st.title("📘 勤務表自動生成（AI勤務エンジン）")
-st.sidebar.header("Excelアップロード")
 
+st.sidebar.header("Excelアップロード")
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
 if not uploaded_file:
     st.info("勤務表Excelをアップロードしてください。")
     st.stop()
-
 
 # ============================
 # Excel読み込み
@@ -97,33 +125,8 @@ name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
 group_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
 role_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
 
-
 # ============================
-# グループ自動補正（セル結合対応）
-# ============================
-groups_full = []
-current_group = None
-
-for g in group_col:
-    if "グループ" in g:
-        current_group = g
-    groups_full.append(current_group)
-
-
-# ============================
-# 役職自動補正（セル結合対応）
-# ============================
-roles_full = []
-current_role = None
-
-for r in role_col:
-    if any(x in r for x in ["介護長", "介護主任", "長", "主任"]):
-        current_role = r
-    roles_full.append(current_role)
-
-
-# ============================
-# 職員名フィルタ（index同期）
+# 職員名フィルタ & index同期
 # ============================
 filtered_indices = []
 filtered_names = []
@@ -135,14 +138,12 @@ for i, n in enumerate(name_col):
 
 text_data = "\n".join(filtered_names)
 
-# index同期で役職・グループ抽出
-filtered_roles = [roles_full[i] for i in filtered_indices]
-filtered_groups = [groups_full[i] for i in filtered_indices]
-
+# indexごとに「上にさかのぼって」役職・グループ取得
+filtered_roles = [find_last_role_above(i, role_col) for i in filtered_indices]
+filtered_groups = [find_last_group_above(i, group_col) for i in filtered_indices]
 
 st.write("### 抽出された職員名（フィルタ後）")
 st.json(filtered_names)
-
 
 # ============================
 # AIプロンプト
@@ -170,6 +171,8 @@ prompt = f"""
 with st.expander("AIに渡すプロンプト（確認用）"):
     st.code(prompt)
 
+# 既存の永続設定を読み込み
+persistent_settings = load_staff_settings()
 
 # ============================
 # AI解析
@@ -188,91 +191,115 @@ if st.button("AIでExcelを解析する"):
         staff_list = parsed.get("staff", [])
         codes_list = parsed.get("codes", [])
 
-        # index同期した役職・グループを上書き
+        # AIのnameに対して、index同期した役職・グループを上書き
         for idx, s in enumerate(staff_list):
             s["role"] = filtered_roles[idx]
             s["group"] = filtered_groups[idx]
 
         st.success("AIによるExcel解析が完了しました！")
-        st.write("### 職員一覧（AI＋フィルタ同期＋自動補正）")
+        st.write("### 職員一覧（AI＋役職・グループ補正）")
         st.json(staff_list)
 
         st.write("### 勤務記号一覧")
         st.json(codes_list)
 
         # ============================
-        # 手動設定（session_stateで永続化）
+        # 職員ごとの設定（永続保存付き）
         # ============================
-        staff_settings = {}
+        staff_settings = persistent_settings.copy()
         staff_names = [s["name"] for s in staff_list]
 
-        st.sidebar.markdown("## 職員ごとの設定（永続化）")
+        st.sidebar.markdown("## 職員ごとの設定（永続保存）")
+
+        # 削除用チェックボックス
+        delete_targets = []
 
         for idx, s in enumerate(staff_list):
             name = s["name"]
 
-            # --- グループ ---
-            if f"group_{name}" not in st.session_state:
-                st.session_state[f"group_{name}"] = s["group"]
+            # 既存設定があればそれを初期値に
+            base = staff_settings.get(name, {})
+            base_role = base.get("role", s["role"])
+            base_group = base.get("group", s["group"])
+            base_universal = base.get("universal", False)
+            base_night_count = base.get("night_count", 4)
+            base_night_double = base.get("night_double", True)
+            base_ng_pairs = base.get("ng_pairs", [])
+
+            st.sidebar.markdown(f"### {name}")
 
             group = st.sidebar.text_input(
                 f"{name}: グループ",
-                value=st.session_state[f"group_{name}"],
+                value=base_group if base_group is not None else "",
                 key=f"group_input_{name}"
             )
-            st.session_state[f"group_{name}"] = group
-
-            # --- 役職 ---
-            if f"role_{name}" not in st.session_state:
-                st.session_state[f"role_{name}"] = s["role"]
 
             role = st.sidebar.text_input(
                 f"{name}: 役職",
-                value=st.session_state[f"role_{name}"],
+                value=base_role if base_role is not None else "",
                 key=f"role_input_{name}"
             )
-            st.session_state[f"role_{name}"] = role
 
-            # --- その他設定 ---
             universal = st.sidebar.checkbox(
                 f"{name}: 万能枠",
-                value=st.session_state.get(f"universal_{name}", False),
+                value=base_universal,
                 key=f"universal_{name}"
             )
 
             night_count = st.sidebar.number_input(
                 f"{name}: 夜勤数",
-                2, 6, 4,
+                2, 6, int(base_night_count),
                 key=f"night_count_{name}"
             )
 
             night_double = st.sidebar.checkbox(
                 f"{name}: 夜勤2連勤OK",
-                value=st.session_state.get(f"night_double_{name}", True),
+                value=base_night_double,
                 key=f"night_double_{name}"
             )
 
             ng_list = st.sidebar.multiselect(
                 f"{name}: NGペア",
                 staff_names,
-                default=st.session_state.get(f"ng_{name}", []),
+                default=base_ng_pairs,
                 key=f"ng_{name}"
             )
 
-            staff_settings[name] = {
-                "role": role,
-                "group": group,
-                "universal": universal,
-                "night_count": night_count,
-                "night_double": night_double,
-                "ng_pairs": ng_list,
-            }
+            # 退職などで削除したい場合
+            delete_flag = st.sidebar.checkbox(
+                f"{name}: この職員を削除（退職など）",
+                value=False,
+                key=f"delete_{name}"
+            )
+            if delete_flag:
+                delete_targets.append(name)
+
+            # 削除対象でなければ設定を保存用 dict に反映
+            if name not in delete_targets:
+                staff_settings[name] = {
+                    "role": role if role else None,
+                    "group": group if group else None,
+                    "universal": universal,
+                    "night_count": int(night_count),
+                    "night_double": night_double,
+                    "ng_pairs": ng_list,
+                }
+
+        # 削除対象を永続設定からも消す
+        for name in delete_targets:
+            if name in staff_settings:
+                del staff_settings[name]
+
+        # 設定を永続保存
+        save_staff_settings(staff_settings)
+        st.success("職員設定を保存しました（永続保存）。")
 
         # ============================
         # 空のDataFrame作成
         # ============================
+        active_staff_names = list(staff_settings.keys())
         df = pd.DataFrame(
-            index=staff_names,
+            index=active_staff_names,
             columns=[f"{i+1}日" for i in range(31)]
         )
 
@@ -291,7 +318,6 @@ if st.button("AIでExcelを解析する"):
                 st.dataframe(result, use_container_width=True)
 
                 excel_binary = export_excel(result)
-
                 st.download_button(
                     "Excelファイルをダウンロード",
                     excel_binary,
