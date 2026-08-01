@@ -17,11 +17,10 @@ if not API_KEY:
     st.stop()
 
 # -----------------------------
-# Gemini REST API（v1版）
+# Gemini REST API（v1beta2版）
 # -----------------------------
 def gemini_generate(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta2/models/gemini-1.5-flash-latest:generateContent?key=API_KEY
-
+    url = f"https://generativelanguage.googleapis.com/v1beta2/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
     headers = {"Content-Type": "application/json"}
 
@@ -44,8 +43,8 @@ def gemini_generate(prompt):
 # -----------------------------
 # Streamlit UI
 # -----------------------------
-st.set_page_config(page_title="勤務表AI（REST v1版）", layout="wide")
-st.title("📘 勤務表AI（Gemini REST API v1 自動化版）")
+st.set_page_config(page_title="勤務表AI（REST v1beta2版）", layout="wide")
+st.title("📘 勤務表AI（Gemini REST API v1beta2 自動化版）")
 
 st.sidebar.header("Excelアップロード")
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
