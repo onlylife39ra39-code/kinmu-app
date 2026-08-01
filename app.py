@@ -30,7 +30,7 @@ def gemini_generate(prompt):
         ],
         "generationConfig": {
             "temperature": 0,
-            "maxOutputTokens": 4096
+            "maxOutputTokens": 8192
         }
     }
 
@@ -91,13 +91,12 @@ st.write("### 抽出された職員名")
 st.json(filtered_names)
 
 # -----------------------------
-# Gemini プロンプト（安定版）
+# Gemini プロンプト（切れない最適化版）
 # -----------------------------
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
 
-以下は主任が作成した勤務表Excelの「職員名が縦に並んだ列」です。
-このデータから次を抽出してください：
+以下の職員名リストから次を抽出してください：
 
 1. staff（職員一覧）
   - name（職員名）
@@ -107,9 +106,10 @@ prompt = f"""
 2. codes（勤務記号一覧）
 
 重要：
-- 出力は JSON のみとし、説明文・Pythonコード・文章は一切含めないでください。
-- JSONのトップレベルキーは必ず "staff" と "codes" の2つにしてください。
-- 必ず完全な JSON を返してください（途中で切らない）。
+- 出力は JSON のみ。
+- JSON以外の文章は一切含めない。
+- 必ず完全な JSON を返す（途中で切らない）。
+- JSONはできるだけ短く簡潔にする。
 
 データ:
 {text_data}
