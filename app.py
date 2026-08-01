@@ -17,10 +17,10 @@ if not API_KEY:
     st.stop()
 
 # -----------------------------
-# Gemini REST API（安定版 3.6 Pro）
+# Gemini REST API（3.6 Flash 安定版）
 # -----------------------------
 def gemini_generate(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-pro:generateContent?key={API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={API_KEY}"
 
     headers = {"Content-Type": "application/json"}
 
@@ -36,7 +36,6 @@ def gemini_generate(prompt):
 
     response = requests.post(url, headers=headers, json=data)
 
-    # JSONとして読めない場合 → エラー内容を表示
     try:
         result = response.json()
     except Exception:
@@ -44,7 +43,6 @@ def gemini_generate(prompt):
         st.write(response.text)
         st.stop()
 
-    # APIエラー
     if "error" in result:
         st.error("Gemini API エラー:")
         st.json(result)
@@ -55,8 +53,8 @@ def gemini_generate(prompt):
 # -----------------------------
 # Streamlit UI
 # -----------------------------
-st.set_page_config(page_title="勤務表AI（Gemini 3.6 Pro 安定版）", layout="wide")
-st.title("📘 勤務表AI（Gemini 3.6 Pro REST API）")
+st.set_page_config(page_title="勤務表AI（Gemini 3.6 Flash 安定版）", layout="wide")
+st.title("📘 勤務表AI（Gemini 3.6 Flash REST API）")
 
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
@@ -120,7 +118,7 @@ prompt = f"""
 # -----------------------------
 # REST API による自動解析
 # -----------------------------
-st.write("### ▼ Gemini 3.6 Pro による自動解析")
+st.write("### ▼ Gemini 3.6 Flash による自動解析")
 
 if st.button("勤務表を自動解析する"):
     with st.spinner("Gemini が解析中…"):
