@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()  # .env を読み込む
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-1.5-flash-latest")
+
 
 st.set_page_config(page_title="勤務表AI（Gemini自動化版）", layout="wide")
 st.title("📘 勤務表AI（Gemini API 自動化版）")
