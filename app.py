@@ -20,7 +20,8 @@ if not API_KEY:
 # Gemini REST API（v1版）
 # -----------------------------
 def gemini_generate(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key={API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta2/models/gemini-1.5-flash-latest:generateContent?key=API_KEY
+
 
     headers = {"Content-Type": "application/json"}
 
