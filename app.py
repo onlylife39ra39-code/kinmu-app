@@ -2,11 +2,21 @@ import streamlit as st
 import pandas as pd
 import json
 import re
+import google.generativeai as genai
+import os
+from dotenv import load_dotenv
 
-st.set_page_config(page_title="勤務表AI（Google AIモード自動化版）", layout="wide")
+# -----------------------------
+# Gemini APIキー設定（dotenv）
+# -----------------------------
+load_dotenv()  # .env を読み込む
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-st.title("📘 勤務表AI（Google AIモード自動化版）")
-st.write("Google AI モードを使って完全無料で勤務表解析できます。")
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+st.set_page_config(page_title="勤務表AI（Gemini自動化版）", layout="wide")
+st.title("📘 勤務表AI（Gemini API 自動化版）")
+st.write("Excel → JSON抽出 → 勤務表生成まで完全自動化します。")
 
 # -----------------------------
 # Excel アップロード
@@ -21,8 +31,6 @@ if not uploaded_file:
 df_raw = pd.read_excel(uploaded_file, header=None)
 
 name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
-group_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
-role_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
 
 # -----------------------------
 # 職員名フィルタ
@@ -50,7 +58,7 @@ st.write("### 抽出された職員名")
 st.json(filtered_names)
 
 # -----------------------------
-# Google AI モードに貼るプロンプト自動生成
+# Gemini に送るプロンプト
 # -----------------------------
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
@@ -73,47 +81,29 @@ prompt = f"""
 {text_data}
 """
 
-st.write("### ▼ Google AI モードに貼るテキスト（自動生成）")
-st.code(prompt)
-
-st.write("### ▼ Google AI モード（Gemini）をここで直接使えます")
-st.components.v1.iframe("https://aistudio.google.com/app/prompts/new_chat", height=700)
-
 # -----------------------------
-# JSON貼り付け欄（自動整形付き）
+# Gemini API 呼び出し（完全自動化）
 # -----------------------------
-st.write("### ▼ Google AI モードの返す JSON を貼り付けてください")
-raw_json = st.text_area("AIから返ってきたJSONを貼り付ける欄", height=300)
+st.write("### ▼ Gemini API による自動解析")
+if st.button("勤務表を自動解析する"):
+    with st.spinner("Gemini が勤務表を解析しています…"):
+        response = model.generate_content(prompt)
+        raw_output = response.text
 
-def extract_json(text: str):
-    m = re.search(r'\{[\s\S]*\}', text)
-    if not m:
-        raise ValueError("JSONが見つかりませんでした。")
-    return json.loads(m.group(0))
+        # JSON抽出
+        try:
+            m = re.search(r'\{[\s\S]*\}', raw_output)
+            parsed_json = json.loads(m.group(0))
+        except Exception as e:
+            st.error(f"JSON解析に失敗しました: {e}")
+            st.stop()
 
-if st.button("JSONを自動整形する"):
-    try:
-        parsed = extract_json(raw_json)
-        st.success("JSONを自動整形しました！")
-        st.json(parsed)
-    except Exception as e:
-        st.error(f"JSON解析に失敗しました: {e}")
+        st.success("JSON解析が完了しました！")
 
-# -----------------------------
-# 勤務表生成
-# -----------------------------
-if st.button("勤務表を生成する"):
-    try:
-        parsed = extract_json(raw_json)
-    except Exception as e:
-        st.error(f"JSON解析に失敗しました: {e}")
-        st.stop()
+        st.write("### 職員一覧")
+        st.json(parsed_json.get("staff", []))
 
-    st.success("JSON解析が完了しました！")
-    st.write("### 職員一覧")
-    st.json(parsed.get("staff", []))
+        st.write("### 勤務記号一覧")
+        st.json(parsed_json.get("codes", []))
 
-    st.write("### 勤務記号一覧")
-    st.json(parsed.get("codes", []))
-
-    st.write("### ▼ ここから勤務表生成ロジックを追加できます（まーくんの既存コードを統合可能）")
+        st.write("### ▼ ここから勤務表生成ロジックを追加できます（まーくんの既存コードを統合可能）")
