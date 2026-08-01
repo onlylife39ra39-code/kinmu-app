@@ -2,21 +2,49 @@ import streamlit as st
 import pandas as pd
 import json
 import re
-import google.generativeai as genai
+import requests
 import os
 from dotenv import load_dotenv
 
 # -----------------------------
-# Gemini APIキー設定（dotenv）
+# APIキー読み込み（dotenv + Streamlit Cloud Secrets対応）
 # -----------------------------
-load_dotenv()  # .env を読み込む
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+load_dotenv()
+API_KEY = os.getenv("GEMINI_API_KEY")
 
-model = genai.GenerativeModel("gemini-1.5-flash-latest")
+if not API_KEY:
+    st.error("❌ APIキーが読み込めていません。Streamlit Cloud の Secrets に GEMINI_API_KEY を設定してください。")
+    st.stop()
 
+# -----------------------------
+# Gemini REST API 呼び出し関数
+# -----------------------------
+def gemini_generate(prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={API_KEY}"
 
-st.set_page_config(page_title="勤務表AI（Gemini自動化版）", layout="wide")
-st.title("📘 勤務表AI（Gemini API 自動化版）")
+    headers = {"Content-Type": "application/json"}
+
+    data = {
+        "contents": [
+            {"parts": [{"text": prompt}]}
+        ]
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+
+    try:
+        result = response.json()
+        return result["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        st.error(f"Gemini API の応答解析に失敗しました: {e}")
+        st.write("API応答内容:", result)
+        st.stop()
+
+# -----------------------------
+# Streamlit UI
+# -----------------------------
+st.set_page_config(page_title="勤務表AI（REST版）", layout="wide")
+st.title("📘 勤務表AI（Gemini REST API 自動化版）")
 st.write("Excel → JSON抽出 → 勤務表生成まで完全自動化します。")
 
 # -----------------------------
@@ -30,7 +58,6 @@ if not uploaded_file:
     st.stop()
 
 df_raw = pd.read_excel(uploaded_file, header=None)
-
 name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
 
 # -----------------------------
@@ -83,13 +110,13 @@ prompt = f"""
 """
 
 # -----------------------------
-# Gemini API 呼び出し（完全自動化）
+# REST API による自動解析
 # -----------------------------
-st.write("### ▼ Gemini API による自動解析")
+st.write("### ▼ Gemini REST API による自動解析")
+
 if st.button("勤務表を自動解析する"):
     with st.spinner("Gemini が勤務表を解析しています…"):
-        response = model.generate_content(prompt)
-        raw_output = response.text
+        raw_output = gemini_generate(prompt)
 
         # JSON抽出
         try:
@@ -97,6 +124,7 @@ if st.button("勤務表を自動解析する"):
             parsed_json = json.loads(m.group(0))
         except Exception as e:
             st.error(f"JSON解析に失敗しました: {e}")
+            st.write("Gemini出力:", raw_output)
             st.stop()
 
         st.success("JSON解析が完了しました！")
