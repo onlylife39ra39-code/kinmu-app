@@ -38,13 +38,7 @@ def gemini_generate(prompt: str) -> str:
     }
 
     response = requests.post(url, headers=headers, json=data)
-
-    try:
-        result = response.json()
-    except Exception:
-        st.error("❌ API が JSON 以外の応答を返しました")
-        st.write(response.text)
-        st.stop()
+    result = response.json()
 
     if "error" in result:
         st.error("Gemini API エラー:")
@@ -164,31 +158,20 @@ if st.button("既存勤務表を解析する"):
     with st.spinner("Gemini が既存勤務表を解析中…"):
 
         analyze_prompt = f"""
-あなたは介護施設の勤務表Excelを解析するAIです。
+JSONのみ返してください。
 
-以下の職員名と勤務記号候補から、次の JSON を作成してください：
-
-1. staff（職員一覧）
-  - name（職員名）
-  - role（役職）
-  - group（グループ）
-
-2. codes（勤務記号一覧）
-
-重要：
-- 出力は JSON のみ。
-- JSON以外の文章は一切含めない。
-- 必ず完全な JSON を返す（途中で切らない）。
-- JSONはできるだけ短く簡潔にする。
-
-職員名:
-{filtered_names}
-
-勤務記号候補:
-{sorted(list(code_candidates))}
+{{ 
+ "staff": [
+   {{"name": "", "role": "", "group": ""}}
+ ],
+ "codes": {json.dumps(sorted(list(code_candidates)), ensure_ascii=False)}
+}}
 """
 
         raw_output = gemini_generate(analyze_prompt)
+
+        st.write("### Gemini 生出力（デバッグ用）")
+        st.text(raw_output)
 
         try:
             m = re.search(r'\{[\s\S]*\}', raw_output)
@@ -200,14 +183,14 @@ if st.button("既存勤務表を解析する"):
 
         st.success("既存勤務表の解析が完了しました！")
 
-        st.write("### staff（職員一覧）")
-        st.json(parsed_json.get("staff", []))
-
-        st.write("### codes（勤務記号一覧）")
-        st.json(parsed_json.get("codes", []))
-
         st.session_state["parsed_staff"] = parsed_json.get("staff", [])
         st.session_state["parsed_codes"] = parsed_json.get("codes", [])
+
+        st.write("### staff（職員一覧）")
+        st.json(st.session_state["parsed_staff"])
+
+        st.write("### codes（勤務記号一覧）")
+        st.json(st.session_state["parsed_codes"])
 
 # ============================================================
 #  ② 翌月勤務表生成（文化OS ver3.0 ロジック統合）
@@ -229,57 +212,29 @@ if st.button("翌月の勤務表を生成する"):
         codes_json = st.session_state["parsed_codes"]
 
         generate_prompt = f"""
-あなたは介護施設の勤務表を生成するAIです。
+JSONのみ返してください。
 
-以下の情報を使って、月間勤務表を JSON 形式で生成してください。
-
-【対象月】
-{month}
-
-【職員一覧】
-{json.dumps(staff_json, ensure_ascii=False)}
-
-【勤務記号一覧】
-{json.dumps(codes_json, ensure_ascii=False)}
-
-【勤務ロジック（文化OS ver3.0）】
-- 公休は原則14日とする。
-- 夜勤の回数・配置は既存勤務表と同程度にする。
-- グループ内で勤務が偏りすぎないようにする。
-- NGペア（同時勤務禁止）は同じ日に同じ勤務帯に入れない。
-- 役職による勤務制約を守る。
-- 「公」「明公」は休み、「日1」「日2ホ」は日勤系、
-  「早1」「早A〜C」は早番系、「遅1A〜C」は遅番系、
-  「夜1」「夜2」は夜勤系として扱う。
-- 勤務記号は必ず勤務記号一覧から選ぶ。
-
-【出力形式】
-JSON のみ。
-文章は一切含めない。
-
-JSON構造：
-{
-  "month": "2026-06",
-  "staff": [
-    {
-      "name": "",
-      "role": "",
-      "group": "",
-      "schedule": {
-        "1": "",
-        "2": "",
-        ...
-        "30": ""
-      }
-    }
-  ]
-}
-
-重要：
-- 必ず完全な JSON を返す（途中で切らない）。
+{{
+ "month": "{month}",
+ "staff": [
+   {{
+     "name": "",
+     "role": "",
+     "group": "",
+     "schedule": {{
+       "1": "",
+       "2": "",
+       "3": ""
+     }}
+   }}
+ ]
+}}
 """
 
         raw_output = gemini_generate(generate_prompt)
+
+        st.write("### Gemini 生出力（デバッグ用）")
+        st.text(raw_output)
 
         try:
             m = re.search(r'\{[\s\S]*\}', raw_output)
@@ -291,17 +246,3 @@ JSON構造：
 
         st.success("翌月の勤務表が生成されました！")
         st.json(generated_schedule)
-
-        # サンプル表示
-        try:
-            staff_list = generated_schedule.get("staff", [])
-            if staff_list:
-                first_staff = staff_list[0]
-                schedule = first_staff.get("schedule", {})
-                df_schedule = pd.DataFrame(
-                    {"日付": list(schedule.keys()), "勤務": list(schedule.values())}
-                )
-                st.write(f"### サンプル表示：{first_staff.get('name', '')} さんの勤務表")
-                st.dataframe(df_schedule)
-        except Exception:
-            pass
