@@ -51,10 +51,24 @@ def gemini_generate(prompt):
     return result["candidates"][0]["content"]["parts"][0]["text"]
 
 # -----------------------------
+# 勤務記号入りシートを自動判定
+# -----------------------------
+def find_sheet_with_codes(dfs):
+    code_keywords = ["早", "遅", "夜", "休", "公休", "有給", "日勤", "研修", "出張"]
+
+    for name, df in dfs.items():
+        try:
+            if df.apply(lambda row: row.astype(str).str.contains("|".join(code_keywords)).any(), axis=1).any():
+                return name
+        except:
+            continue
+    return None
+
+# -----------------------------
 # Streamlit UI
 # -----------------------------
-st.set_page_config(page_title="勤務表AI（Gemini 3.6 Flash 安定版）", layout="wide")
-st.title("📘 勤務表AI（Gemini 3.6 Flash REST API）")
+st.set_page_config(page_title="勤務表AI（Gemini 3.6 Flash / シート自動判定版）", layout="wide")
+st.title("📘 勤務表AI（Gemini 3.6 Flash / シート自動判定版）")
 
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
@@ -62,12 +76,28 @@ if not uploaded_file:
     st.info("Excel をアップロードしてください。")
     st.stop()
 
-df_raw = pd.read_excel(uploaded_file, header=None)
-name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
+# 全シート読み込み
+xls = pd.ExcelFile(uploaded_file)
+sheets = xls.sheet_names
+dfs = {name: pd.read_excel(uploaded_file, sheet_name=name, header=None) for name in sheets}
+
+# 勤務記号入りシートを探す
+target_sheet = find_sheet_with_codes(dfs)
+
+if not target_sheet:
+    st.error("❌ 勤務記号が含まれるシートが見つかりませんでした。")
+    st.write("読み込んだシート一覧:", sheets)
+    st.stop()
+
+st.success(f"勤務記号入りシートを検出しました： {target_sheet}")
+
+df_raw = dfs[target_sheet]
 
 # -----------------------------
-# 職員名フィルタ
+# 職員名抽出
 # -----------------------------
+name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
+
 def is_staff_name(text: str) -> bool:
     if not text:
         return False
@@ -85,18 +115,30 @@ def is_staff_name(text: str) -> bool:
     return False
 
 filtered_names = [n.replace("☆", "") for n in name_col if is_staff_name(n)]
-text_data = "\n".join(filtered_names)
-
 st.write("### 抽出された職員名")
 st.json(filtered_names)
 
 # -----------------------------
-# Gemini プロンプト（切れない最適化版）
+# 勤務記号抽出（行全体から）
+# -----------------------------
+all_rows = df_raw.fillna("").astype(str).values.tolist()
+
+code_candidates = set()
+for row in all_rows:
+    for cell in row:
+        if re.match(r"^(早|遅|夜|休|公休|有給|日勤|研修|出張)$", cell):
+            code_candidates.add(cell)
+
+st.write("### 抽出された勤務記号（候補）")
+st.json(list(code_candidates))
+
+# -----------------------------
+# Gemini プロンプト（最適化）
 # -----------------------------
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
 
-以下の職員名リストから次を抽出してください：
+以下の職員名と勤務記号候補から、次の JSON を作成してください：
 
 1. staff（職員一覧）
   - name（職員名）
@@ -111,8 +153,11 @@ prompt = f"""
 - 必ず完全な JSON を返す（途中で切らない）。
 - JSONはできるだけ短く簡潔にする。
 
-データ:
-{text_data}
+職員名:
+{filtered_names}
+
+勤務記号候補:
+{list(code_candidates)}
 """
 
 # -----------------------------
