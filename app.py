@@ -1,77 +1,32 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import json
-import requests
 import re
-import os
 
-from io_utils import export_excel
-from engine import solve_schedule
+st.set_page_config(page_title="勤務表AI（Google AIモード自動化版）", layout="wide")
 
-# ============================
-# Together AI 設定（無料枠あり・カード不要）
-# ============================
-TOGETHER_URL = "https://api.together.xyz/v1/chat/completions"
-MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"  # 日本語も強くて勤務表向き
+st.title("📘 勤務表AI（Google AIモード自動化版）")
+st.write("Google AI モードを使って完全無料で勤務表解析できます。")
 
-def call_ai(prompt: str) -> str:
-    api_key = os.getenv("TOGETHER_API_KEY")
+# -----------------------------
+# Excel アップロード
+# -----------------------------
+st.sidebar.header("Excelアップロード")
+uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
-    if not api_key:
-        st.error("Together APIキーが読み込めていません（Secretsに TOGETHER_API_KEY を設定してください）")
-        return None
+if not uploaded_file:
+    st.info("勤務表Excelをアップロードしてください。")
+    st.stop()
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+df_raw = pd.read_excel(uploaded_file, header=None)
 
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.2,
-        "max_tokens": 2048
-    }
+name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
+group_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
+role_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
 
-    try:
-        resp = requests.post(TOGETHER_URL, headers=headers, json=payload, timeout=60)
-    except requests.exceptions.RequestException as e:
-        st.error(f"Together API への接続に失敗しました: {e}")
-        return None
-
-    if resp.status_code != 200:
-        st.error(f"Together API Error: {resp.status_code}")
-        st.code(resp.text)
-        return None
-
-    try:
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-    except Exception:
-        st.error("AI返答の解析に失敗しました（レスポンス形式が不正）")
-        st.code(resp.text)
-        return None
-
-
-# ============================
-# JSON抽出
-# ============================
-def extract_json(text: str):
-    m = re.search(r'\{[\s\S]*\}', text)
-    if not m:
-        raise ValueError("AI返答にJSONが見つかりませんでした。")
-    return json.loads(m.group(0))
-
-
-# ============================
+# -----------------------------
 # 職員名フィルタ
-# ============================
+# -----------------------------
 def is_staff_name(text: str) -> bool:
     if not text:
         return False
@@ -88,88 +43,15 @@ def is_staff_name(text: str) -> bool:
         return True
     return False
 
-
-# ============================
-# 役職・グループを「上にさかのぼって」取得
-# ============================
-def find_last_role_above(index, role_col):
-    for i in range(index, -1, -1):
-        r = role_col[i]
-        if any(x in r for x in ["介護長", "介護主任", "長", "主任"]):
-            return r
-    return None
-
-def find_last_group_above(index, group_col):
-    for i in range(index, -1, -1):
-        g = group_col[i]
-        if "グループ" in g:
-            return g
-    return None
-
-
-# ============================
-# 永続保存 JSON
-# ============================
-SETTINGS_FILE = "staff_settings.json"
-
-def load_staff_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_staff_settings(settings: dict):
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(settings, f, ensure_ascii=False, indent=2)
-
-
-# ============================
-# Streamlit UI
-# ============================
-st.set_page_config(page_title="勤務表自動生成（Together AI版）", layout="wide")
-st.title("📘 勤務表自動生成（Together AI版）")
-
-st.sidebar.header("Excelアップロード")
-uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
-
-if not uploaded_file:
-    st.info("勤務表Excelをアップロードしてください。")
-    st.stop()
-
-
-# ============================
-# Excel読み込み
-# ============================
-df_raw = pd.read_excel(uploaded_file, header=None)
-
-name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
-group_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
-role_col = df_raw.iloc[:, 0].fillna("").astype(str).tolist()
-
-
-# ============================
-# 職員名フィルタ & index同期
-# ============================
-filtered_indices = []
-filtered_names = []
-
-for i, n in enumerate(name_col):
-    if is_staff_name(n):
-        filtered_indices.append(i)
-        filtered_names.append(n.replace("☆", ""))
-
+filtered_names = [n.replace("☆", "") for n in name_col if is_staff_name(n)]
 text_data = "\n".join(filtered_names)
 
-filtered_roles = [find_last_role_above(i, role_col) for i in filtered_indices]
-filtered_groups = [find_last_group_above(i, group_col) for i in filtered_indices]
-
-st.write("### 抽出された職員名（フィルタ後）")
+st.write("### 抽出された職員名")
 st.json(filtered_names)
 
-
-# ============================
-# AIプロンプト
-# ============================
+# -----------------------------
+# Google AI モードに貼るプロンプト自動生成
+# -----------------------------
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
 
@@ -191,152 +73,47 @@ prompt = f"""
 {text_data}
 """
 
-with st.expander("AIに渡すプロンプト（確認用）"):
-    st.code(prompt)
+st.write("### ▼ Google AI モードに貼るテキスト（自動生成）")
+st.code(prompt)
 
+st.write("### ▼ Google AI モード（Gemini）をここで直接使えます")
+st.components.v1.iframe("https://aistudio.google.com/app/prompts/new_chat", height=700)
 
-# ============================
-# 永続設定読み込み
-# ============================
-persistent_settings = load_staff_settings()
+# -----------------------------
+# JSON貼り付け欄（自動整形付き）
+# -----------------------------
+st.write("### ▼ Google AI モードの返す JSON を貼り付けてください")
+raw_json = st.text_area("AIから返ってきたJSONを貼り付ける欄", height=300)
 
+def extract_json(text: str):
+    m = re.search(r'\{[\s\S]*\}', text)
+    if not m:
+        raise ValueError("JSONが見つかりませんでした。")
+    return json.loads(m.group(0))
 
-# ============================
-# AI解析
-# ============================
-if st.button("AIでExcelを解析する"):
-    with st.spinner("AIがExcelを解析中..."):
-        ai_response = call_ai(prompt)
+if st.button("JSONを自動整形する"):
+    try:
+        parsed = extract_json(raw_json)
+        st.success("JSONを自動整形しました！")
+        st.json(parsed)
+    except Exception as e:
+        st.error(f"JSON解析に失敗しました: {e}")
 
-        if ai_response is None:
-            st.stop()
+# -----------------------------
+# 勤務表生成
+# -----------------------------
+if st.button("勤務表を生成する"):
+    try:
+        parsed = extract_json(raw_json)
+    except Exception as e:
+        st.error(f"JSON解析に失敗しました: {e}")
+        st.stop()
 
-        try:
-            parsed = extract_json(ai_response)
-        except Exception as e:
-            st.error(f"AI返答の解析に失敗しました: {e}")
-            st.text(ai_response)
-            st.stop()
+    st.success("JSON解析が完了しました！")
+    st.write("### 職員一覧")
+    st.json(parsed.get("staff", []))
 
-        staff_list = parsed.get("staff", [])
-        codes_list = parsed.get("codes", [])
+    st.write("### 勤務記号一覧")
+    st.json(parsed.get("codes", []))
 
-        # 役職・グループを上から補正
-        for idx, s in enumerate(staff_list):
-            if idx < len(filtered_roles):
-                s["role"] = filtered_roles[idx]
-            if idx < len(filtered_groups):
-                s["group"] = filtered_groups[idx]
-
-        st.success("AIによるExcel解析が完了しました！")
-        st.write("### 職員一覧（AI＋役職・グループ補正）")
-        st.json(staff_list)
-
-        st.write("### 勤務記号一覧")
-        st.json(codes_list)
-
-        staff_settings = persistent_settings.copy()
-        staff_names = [s["name"] for s in staff_list]
-
-        st.sidebar.markdown("## 職員ごとの設定（永続保存）")
-
-        delete_targets = []
-
-        for idx, s in enumerate(staff_list):
-            name = s["name"]
-
-            base = staff_settings.get(name, {})
-            base_role = base.get("role", s.get("role"))
-            base_group = base.get("group", s.get("group"))
-            base_universal = base.get("universal", False)
-            base_night_count = base.get("night_count", 4)
-            base_night_double = base.get("night_double", True)
-            base_ng_pairs = base.get("ng_pairs", [])
-
-            st.sidebar.markdown(f"### {name}")
-
-            group = st.sidebar.text_input(
-                f"{name}: グループ",
-                value=base_group if base_group else "",
-                key=f"group_input_{name}"
-            )
-
-            role = st.sidebar.text_input(
-                f"{name}: 役職",
-                value=base_role if base_role else "",
-                key=f"role_input_{name}"
-            )
-
-            universal = st.sidebar.checkbox(
-                f"{name}: 万能枠",
-                value=base_universal,
-                key=f"universal_{name}"
-            )
-
-            night_count = st.sidebar.number_input(
-                f"{name}: 夜勤数",
-                2, 6, int(base_night_count),
-                key=f"night_count_{name}"
-            )
-
-            night_double = st.sidebar.checkbox(
-                f"{name}: 夜勤2連勤OK",
-                value=base_night_double,
-                key=f"night_double_{name}"
-            )
-
-            ng_list = st.sidebar.multiselect(
-                f"{name}: NGペア",
-                staff_names,
-                default=base_ng_pairs,
-                key=f"ng_{name}"
-            )
-
-            delete_flag = st.sidebar.checkbox(
-                f"{name}: この職員を削除（退職など）",
-                value=False,
-                key=f"delete_{name}"
-            )
-            if delete_flag:
-                delete_targets.append(name)
-
-            if name not in delete_targets:
-                staff_settings[name] = {
-                    "role": role if role else None,
-                    "group": group if group else None,
-                    "universal": universal,
-                    "night_count": int(night_count),
-                    "night_double": night_double,
-                    "ng_pairs": ng_list,
-                }
-
-        for name in delete_targets:
-            if name in staff_settings:
-                del staff_settings[name]
-
-        save_staff_settings(staff_settings)
-        st.success("職員設定を保存しました（永続保存）。")
-
-        active_staff_names = list(staff_settings.keys())
-        df = pd.DataFrame(
-            index=active_staff_names,
-            columns=[f"{i+1}日" for i in range(31)]
-        )
-
-        if st.button("勤務表を自動生成する"):
-            with st.spinner("最適化エンジンが勤務表を計算中..."):
-                result = solve_schedule(df, staff_settings)
-
-                if result is None:
-                    st.error("制約を満たす解が見つかりませんでした。条件を調整してください。")
-                    st.stop()
-
-                st.success("勤務表の自動生成が完了しました！")
-                st.dataframe(result, use_container_width=True)
-
-                excel_binary = export_excel(result)
-                st.download_button(
-                    "Excelファイルをダウンロード",
-                    excel_binary,
-                    "generated_schedule.xlsx"
-                )
+    st.write("### ▼ ここから勤務表生成ロジックを追加できます（まーくんの既存コードを統合可能）")
