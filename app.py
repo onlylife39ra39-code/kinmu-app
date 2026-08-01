@@ -6,24 +6,17 @@ import requests
 import os
 from dotenv import load_dotenv
 
-# -----------------------------
-# APIキー読み込み
-# -----------------------------
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not API_KEY:
-    st.error("❌ APIキーが読み込めていません。Streamlit Cloud の Secrets に GEMINI_API_KEY を設定してください。")
+    st.error("❌ GEMINI_API_KEY が読み込めていません。")
     st.stop()
 
-# -----------------------------
-# Gemini REST API（AI Studio版 v1beta）
-# -----------------------------
 def gemini_generate(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={API_KEY}"
 
     headers = {"Content-Type": "application/json"}
-
     data = {
         "contents": [
             {"parts": [{"text": prompt}]}
@@ -32,15 +25,13 @@ def gemini_generate(prompt):
 
     response = requests.post(url, headers=headers, json=data)
 
-    # JSONとして読めない場合 → エラー内容を表示
     try:
         result = response.json()
     except Exception:
-        st.error("❌ APIがJSON以外の応答を返しました（HTMLエラーなど）")
-        st.write("レスポンス内容:", response.text)
+        st.error("❌ API が JSON 以外の応答を返しました")
+        st.write(response.text)
         st.stop()
 
-    # APIエラー
     if "error" in result:
         st.error("Gemini API エラー:")
         st.json(result)
@@ -48,25 +39,18 @@ def gemini_generate(prompt):
 
     return result["candidates"][0]["content"]["parts"][0]["text"]
 
-# -----------------------------
-# Streamlit UI
-# -----------------------------
-st.set_page_config(page_title="勤務表AI（REST v1beta版）", layout="wide")
-st.title("📘 勤務表AI（Gemini REST API v1beta 自動化版）")
+st.set_page_config(page_title="勤務表AI（Gemini 3.6 Flash）", layout="wide")
+st.title("📘 勤務表AI（Gemini 3.6 Flash REST API）")
 
-st.sidebar.header("Excelアップロード")
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
 if not uploaded_file:
-    st.info("勤務表Excelをアップロードしてください。")
+    st.info("Excel をアップロードしてください。")
     st.stop()
 
 df_raw = pd.read_excel(uploaded_file, header=None)
 name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
 
-# -----------------------------
-# 職員名フィルタ
-# -----------------------------
 def is_staff_name(text: str) -> bool:
     if not text:
         return False
@@ -89,9 +73,6 @@ text_data = "\n".join(filtered_names)
 st.write("### 抽出された職員名")
 st.json(filtered_names)
 
-# -----------------------------
-# Gemini プロンプト
-# -----------------------------
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
 
@@ -113,13 +94,10 @@ prompt = f"""
 {text_data}
 """
 
-# -----------------------------
-# REST API による自動解析
-# -----------------------------
-st.write("### ▼ Gemini REST API による自動解析")
+st.write("### ▼ Gemini 3.6 Flash による自動解析")
 
 if st.button("勤務表を自動解析する"):
-    with st.spinner("Gemini が勤務表を解析しています…"):
+    with st.spinner("Gemini が解析中…"):
         raw_output = gemini_generate(prompt)
 
         try:
