@@ -17,10 +17,10 @@ if not API_KEY:
     st.stop()
 
 # -----------------------------
-# Gemini REST API（v1beta2版）
+# Gemini REST API（v1版）
 # -----------------------------
 def gemini_generate(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta2/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
     headers = {"Content-Type": "application/json"}
 
@@ -31,8 +31,16 @@ def gemini_generate(prompt):
     }
 
     response = requests.post(url, headers=headers, json=data)
-    result = response.json()
 
+    # JSONとして読めない場合 → エラー内容を表示
+    try:
+        result = response.json()
+    except Exception:
+        st.error("❌ APIがJSON以外の応答を返しました（HTMLエラーなど）")
+        st.write("レスポンス内容:", response.text)
+        st.stop()
+
+    # APIエラー
     if "error" in result:
         st.error("Gemini API エラー:")
         st.json(result)
@@ -43,8 +51,8 @@ def gemini_generate(prompt):
 # -----------------------------
 # Streamlit UI
 # -----------------------------
-st.set_page_config(page_title="勤務表AI（REST v1beta2版）", layout="wide")
-st.title("📘 勤務表AI（Gemini REST API v1beta2 自動化版）")
+st.set_page_config(page_title="勤務表AI（REST v1版）", layout="wide")
+st.title("📘 勤務表AI（Gemini REST API v1 自動化版）")
 
 st.sidebar.header("Excelアップロード")
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
