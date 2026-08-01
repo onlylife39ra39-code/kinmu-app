@@ -54,11 +54,14 @@ def gemini_generate(prompt):
 # 勤務記号入りシートを自動判定
 # -----------------------------
 def find_sheet_with_codes(dfs):
-    code_keywords = ["早", "遅", "夜", "休", "公休", "有給", "日勤", "研修", "出張"]
+    # まーくんの勤務表に実際に存在する勤務記号
+    code_keywords = ["早", "遅", "夜", "明", "公", "宿"]
+
+    pattern = "|".join(code_keywords)
 
     for name, df in dfs.items():
         try:
-            if df.apply(lambda row: row.astype(str).str.contains("|".join(code_keywords)).any(), axis=1).any():
+            if df.apply(lambda row: row.astype(str).str.contains(pattern).any(), axis=1).any():
                 return name
         except:
             continue
@@ -70,7 +73,7 @@ def find_sheet_with_codes(dfs):
 st.set_page_config(page_title="勤務表AI（Gemini 3.6 Flash / シート自動判定版）", layout="wide")
 st.title("📘 勤務表AI（Gemini 3.6 Flash / シート自動判定版）")
 
-uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx", "xlsm"])
 
 if not uploaded_file:
     st.info("Excel をアップロードしてください。")
@@ -94,7 +97,7 @@ st.success(f"勤務記号入りシートを検出しました： {target_sheet}"
 df_raw = dfs[target_sheet]
 
 # -----------------------------
-# 職員名抽出
+# 職員名抽出（左側の列）
 # -----------------------------
 name_col = df_raw.iloc[:, 1].fillna("").astype(str).tolist()
 
@@ -126,7 +129,7 @@ all_rows = df_raw.fillna("").astype(str).values.tolist()
 code_candidates = set()
 for row in all_rows:
     for cell in row:
-        if re.match(r"^(早|遅|夜|休|公休|有給|日勤|研修|出張)$", cell):
+        if re.match(r"^(早|遅|夜|明公|公|宿)$", cell):
             code_candidates.add(cell)
 
 st.write("### 抽出された勤務記号（候補）")
