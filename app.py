@@ -7,7 +7,7 @@ import os
 from dotenv import load_dotenv
 
 # -----------------------------
-# APIキー読み込み（dotenv + Streamlit Cloud Secrets対応）
+# APIキー読み込み
 # -----------------------------
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -17,10 +17,10 @@ if not API_KEY:
     st.stop()
 
 # -----------------------------
-# Gemini REST API 呼び出し関数
+# Gemini REST API（v1版）
 # -----------------------------
 def gemini_generate(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key={API_KEY}"
 
     headers = {"Content-Type": "application/json"}
 
@@ -31,25 +31,21 @@ def gemini_generate(prompt):
     }
 
     response = requests.post(url, headers=headers, json=data)
+    result = response.json()
 
-    try:
-        result = response.json()
-        return result["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        st.error(f"Gemini API の応答解析に失敗しました: {e}")
-        st.write("API応答内容:", result)
+    if "error" in result:
+        st.error("Gemini API エラー:")
+        st.json(result)
         st.stop()
+
+    return result["candidates"][0]["content"]["parts"][0]["text"]
 
 # -----------------------------
 # Streamlit UI
 # -----------------------------
-st.set_page_config(page_title="勤務表AI（REST版）", layout="wide")
-st.title("📘 勤務表AI（Gemini REST API 自動化版）")
-st.write("Excel → JSON抽出 → 勤務表生成まで完全自動化します。")
+st.set_page_config(page_title="勤務表AI（REST v1版）", layout="wide")
+st.title("📘 勤務表AI（Gemini REST API v1 自動化版）")
 
-# -----------------------------
-# Excel アップロード
-# -----------------------------
 st.sidebar.header("Excelアップロード")
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
 
@@ -86,7 +82,7 @@ st.write("### 抽出された職員名")
 st.json(filtered_names)
 
 # -----------------------------
-# Gemini に送るプロンプト
+# Gemini プロンプト
 # -----------------------------
 prompt = f"""
 あなたは介護施設の勤務表Excelを解析するAIです。
@@ -118,7 +114,6 @@ if st.button("勤務表を自動解析する"):
     with st.spinner("Gemini が勤務表を解析しています…"):
         raw_output = gemini_generate(prompt)
 
-        # JSON抽出
         try:
             m = re.search(r'\{[\s\S]*\}', raw_output)
             parsed_json = json.loads(m.group(0))
@@ -134,5 +129,3 @@ if st.button("勤務表を自動解析する"):
 
         st.write("### 勤務記号一覧")
         st.json(parsed_json.get("codes", []))
-
-        st.write("### ▼ ここから勤務表生成ロジックを追加できます（まーくんの既存コードを統合可能）")
