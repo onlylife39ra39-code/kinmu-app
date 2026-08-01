@@ -10,37 +10,51 @@ from io_utils import export_excel
 from engine import solve_schedule
 
 # ============================
-# HuggingFace API（無料・カード不要）
+# Together AI 設定（無料枠あり・カード不要）
 # ============================
-HF_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+TOGETHER_URL = "https://api.together.xyz/v1/chat/completions"
+MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"  # 日本語も強くて勤務表向き
 
 def call_ai(prompt: str) -> str:
-    HF_API_KEY = os.getenv("HF_API_KEY")
+    api_key = os.getenv("TOGETHER_API_KEY")
 
-    if not HF_API_KEY:
-        st.error("HuggingFace APIキーが読み込めていません（Secretsに設定してください）")
+    if not api_key:
+        st.error("Together APIキーが読み込めていません（Secretsに TOGETHER_API_KEY を設定してください）")
         return None
 
     headers = {
-        "Authorization": f"Bearer {HF_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
     payload = {
-        "inputs": prompt
+        "model": MODEL_NAME,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.2,
+        "max_tokens": 2048
     }
 
-    resp = requests.post(HF_URL, headers=headers, json=payload)
+    try:
+        resp = requests.post(TOGETHER_URL, headers=headers, json=payload, timeout=60)
+    except requests.exceptions.RequestException as e:
+        st.error(f"Together API への接続に失敗しました: {e}")
+        return None
 
     if resp.status_code != 200:
-        st.error(f"HuggingFace API Error: {resp.status_code}")
+        st.error(f"Together API Error: {resp.status_code}")
         st.code(resp.text)
         return None
 
     try:
-        return resp.json()[0]["generated_text"]
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
     except Exception:
-        st.error("AI返答の解析に失敗しました（JSON形式が不正）")
+        st.error("AI返答の解析に失敗しました（レスポンス形式が不正）")
         st.code(resp.text)
         return None
 
@@ -112,8 +126,8 @@ def save_staff_settings(settings: dict):
 # ============================
 # Streamlit UI
 # ============================
-st.set_page_config(page_title="勤務表自動生成（AI勤務エンジン）", layout="wide")
-st.title("📘 勤務表自動生成（AI勤務エンジン）")
+st.set_page_config(page_title="勤務表自動生成（Together AI版）", layout="wide")
+st.title("📘 勤務表自動生成（Together AI版）")
 
 st.sidebar.header("Excelアップロード")
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx"])
@@ -171,6 +185,7 @@ prompt = f"""
 
 重要：
 - 出力は JSON のみとし、説明文・Pythonコード・文章は一切含めないでください。
+- JSONのトップレベルキーは必ず "staff" と "codes" の2つにしてください。
 
 データ:
 {text_data}
@@ -206,9 +221,12 @@ if st.button("AIでExcelを解析する"):
         staff_list = parsed.get("staff", [])
         codes_list = parsed.get("codes", [])
 
+        # 役職・グループを上から補正
         for idx, s in enumerate(staff_list):
-            s["role"] = filtered_roles[idx]
-            s["group"] = filtered_groups[idx]
+            if idx < len(filtered_roles):
+                s["role"] = filtered_roles[idx]
+            if idx < len(filtered_groups):
+                s["group"] = filtered_groups[idx]
 
         st.success("AIによるExcel解析が完了しました！")
         st.write("### 職員一覧（AI＋役職・グループ補正）")
@@ -228,8 +246,8 @@ if st.button("AIでExcelを解析する"):
             name = s["name"]
 
             base = staff_settings.get(name, {})
-            base_role = base.get("role", s["role"])
-            base_group = base.get("group", s["group"])
+            base_role = base.get("role", s.get("role"))
+            base_group = base.get("group", s.get("group"))
             base_universal = base.get("universal", False)
             base_night_count = base.get("night_count", 4)
             base_night_double = base.get("night_double", True)
