@@ -4,6 +4,7 @@ import json
 import re
 import requests
 import os
+from io import BytesIO
 from dotenv import load_dotenv
 
 # ============================================================
@@ -94,8 +95,8 @@ def is_staff_name(text: str) -> bool:
 # ============================================================
 #  Streamlit UI
 # ============================================================
-st.set_page_config(page_title="勤務表AI（統合版）", layout="wide")
-st.title("📘 勤務表AI（Gemini 3.6 Flash / 統合版）")
+st.set_page_config(page_title="勤務表AI（本番仕様統合版）", layout="wide")
+st.title("📘 勤務表AI（Gemini 3.6 Flash / 本番仕様＋Excel出力）")
 
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx", "xlsm"])
 
@@ -160,17 +161,17 @@ if st.button("既存勤務表を解析する"):
         analyze_prompt = f"""
 JSONのみ返してください。
 
-{{ 
- "staff": [
-   {{"name": "", "role": "", "group": ""}}
- ],
- "codes": {json.dumps(sorted(list(code_candidates)), ensure_ascii=False)}
+{{
+  "staff": [
+    {{"name": "", "role": "", "group": ""}}
+  ],
+  "codes": {json.dumps(sorted(list(code_candidates)), ensure_ascii=False)}
 }}
 """
 
         raw_output = gemini_generate(analyze_prompt)
 
-        st.write("### Gemini 生出力（デバッグ用）")
+        st.write("### Gemini 生出力（解析）")
         st.text(raw_output)
 
         try:
@@ -193,9 +194,9 @@ JSONのみ返してください。
         st.json(st.session_state["parsed_codes"])
 
 # ============================================================
-#  ② 翌月勤務表生成（文化OS ver3.0 ロジック統合）
+#  ② 翌月勤務表生成（本番仕様JSON）
 # ============================================================
-st.write("## ② 翌月の勤務表を生成する（文化OSロジック統合）")
+st.write("## ② 翌月の勤務表を生成する（本番仕様JSON）")
 
 default_month = "2026-06"
 month = st.text_input("生成する月（YYYY-MM形式）", value=default_month)
@@ -211,29 +212,74 @@ if st.button("翌月の勤務表を生成する"):
         staff_json = st.session_state["parsed_staff"]
         codes_json = st.session_state["parsed_codes"]
 
+        # 月の日数はとりあえず30で固定（あとで動的にしてもOK）
+        days = 30
+
         generate_prompt = f"""
 JSONのみ返してください。
 
+以下の仕様で勤務表を生成してください。
+
+【JSON仕様】
 {{
- "month": "{month}",
- "staff": [
-   {{
-     "name": "",
-     "role": "",
-     "group": "",
-     "schedule": {{
-       "1": "",
-       "2": "",
-       "3": ""
-     }}
-   }}
- ]
+  "month": "{month}",
+  "days": {days},
+  "staff": [
+    {{
+      "name": "",
+      "role": "",
+      "group": "",
+      "schedule": {{
+        "1": "",
+        "2": "",
+        "3": "",
+        "4": "",
+        "5": "",
+        "6": "",
+        "7": "",
+        "8": "",
+        "9": "",
+        "10": "",
+        "11": "",
+        "12": "",
+        "13": "",
+        "14": "",
+        "15": "",
+        "16": "",
+        "17": "",
+        "18": "",
+        "19": "",
+        "20": "",
+        "21": "",
+        "22": "",
+        "23": "",
+        "24": "",
+        "25": "",
+        "26": "",
+        "27": "",
+        "28": "",
+        "29": "",
+        "30": ""
+      }}
+    }}
+  ]
 }}
+
+【勤務記号一覧】
+{json.dumps(codes_json, ensure_ascii=False)}
+
+【職員一覧】
+{json.dumps(staff_json, ensure_ascii=False)}
+
+重要：
+- JSON以外の文章は禁止。
+- 必ず完全な JSON を返す。
+- schedule は 1〜{days} まで全て埋める。
 """
 
         raw_output = gemini_generate(generate_prompt)
 
-        st.write("### Gemini 生出力（デバッグ用）")
+        st.write("### Gemini 生出力（生成）")
         st.text(raw_output)
 
         try:
@@ -246,3 +292,46 @@ JSONのみ返してください。
 
         st.success("翌月の勤務表が生成されました！")
         st.json(generated_schedule)
+
+        st.session_state["generated_schedule"] = generated_schedule
+
+# ============================================================
+#  ③ 生成した勤務表をExcelに書き出す
+# ============================================================
+st.write("## ③ 生成した勤務表をExcelに書き出す")
+
+if "generated_schedule" in st.session_state:
+    generated_schedule = st.session_state["generated_schedule"]
+    staff_list = generated_schedule.get("staff", [])
+    days = generated_schedule.get("days", 30)
+
+    # DataFrame化：行＝職員、列＝日付
+    if staff_list:
+        rows = []
+        for staff in staff_list:
+            row = {"職員名": staff.get("name", ""), "役職": staff.get("role", ""), "グループ": staff.get("group", "")}
+            schedule = staff.get("schedule", {})
+            for d in range(1, days + 1):
+                row[str(d)] = schedule.get(str(d), "")
+            rows.append(row)
+
+        df_out = pd.DataFrame(rows)
+
+        st.write("### 生成勤務表（テーブル表示）")
+        st.dataframe(df_out)
+
+        # Excel書き出し
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            df_out.to_excel(writer, index=False, sheet_name="勤務表")
+
+        buffer.seek(0)
+
+        st.download_button(
+            label="生成した勤務表をExcelでダウンロード",
+            data=buffer,
+            file_name=f"勤務表_{generated_schedule.get('month', 'unknown')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+else:
+    st.info("まだ勤務表が生成されていません。『翌月の勤務表を生成する』を先に実行してください。")
