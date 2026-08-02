@@ -91,11 +91,26 @@ def is_staff_name(text: str) -> bool:
 #  役職・グループ抽出（Excel構造から）
 # ============================================================
 def extract_roles_groups(df_raw, filtered_names):
+
+    # df_raw が openpyxl Worksheet の場合 → pandas DataFrame に変換
+    if not isinstance(df_raw, pd.DataFrame):
+        try:
+            df_raw = pd.DataFrame(df_raw)
+        except Exception:
+            # 万が一変換できない場合は空の DataFrame にする（安全策）
+            df_raw = pd.DataFrame()
+
     roles = {}
     groups = {}
 
+    # 行ごとに文字列化して走査
     for idx, row in df_raw.iterrows():
-        row_str = " ".join(row.astype(str).tolist())
+        try:
+            # row が pandas Series の場合
+            row_str = " ".join(row.astype(str).tolist())
+        except Exception:
+            # 万が一 row が Series でない場合の保険
+            row_str = " ".join([str(x) for x in row])
 
         # 役職候補
         role_candidates = [
