@@ -7,6 +7,10 @@ import os
 from io import BytesIO
 from dotenv import load_dotenv
 
+# Excel書式コピー用
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Side, PatternFill, Font
+
 # ============================================================
 #  APIキー読み込み
 # ============================================================
@@ -18,38 +22,28 @@ if not API_KEY:
     st.stop()
 
 # ============================================================
-#  Gemini REST API（3.6 Flash 安定版）
+#  Gemini REST API（3.6 Flash）
 # ============================================================
 def gemini_generate(prompt: str) -> str:
     url = (
         "https://generativelanguage.googleapis.com/v1beta/"
         "models/gemini-3.6-flash:generateContent?key=" + API_KEY
     )
-
     headers = {"Content-Type": "application/json"}
-
     data = {
-        "contents": [
-            {"parts": [{"text": prompt}]}
-        ],
-        "generationConfig": {
-            "temperature": 0,
-            "maxOutputTokens": 8192
-        }
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0, "maxOutputTokens": 8192},
     }
-
     response = requests.post(url, headers=headers, json=data)
     result = response.json()
-
     if "error" in result:
         st.error("Gemini API エラー:")
         st.json(result)
         st.stop()
-
     return result["candidates"][0]["content"]["parts"][0]["text"]
 
 # ============================================================
-#  勤務記号（まーくんの実データ）
+#  勤務記号（文化OS ver3.0）
 # ============================================================
 CODE_LIST = [
     "公", "明公",
@@ -60,11 +54,10 @@ CODE_LIST = [
 ]
 
 # ============================================================
-#  勤務記号入りシートを自動判定
+#  勤務記号入りシート自動判定
 # ============================================================
 def find_sheet_with_codes(dfs: dict) -> str | None:
     pattern = "|".join(CODE_LIST)
-
     for name, df in dfs.items():
         try:
             if df.apply(lambda row: row.astype(str).str.contains(pattern).any(), axis=1).any():
@@ -74,13 +67,14 @@ def find_sheet_with_codes(dfs: dict) -> str | None:
     return None
 
 # ============================================================
-#  職員名判定
+#  職員名判定（漢字・ひらがな・カタカナのみ）
 # ============================================================
 def is_staff_name(text: str) -> bool:
     if not text:
         return False
     t = text.replace("☆", "").strip()
 
+    # 除外ワード
     if t in ["月間予定"]:
         return False
     if any(x in t for x in ["～", ":", "勤務時間", "週", "月～金", "土日祝"]):
@@ -88,15 +82,106 @@ def is_staff_name(text: str) -> bool:
     if any(x in t for x in ["グループ", "介護長", "介護主任", "新入職員", "パート"]):
         return False
 
+    # 漢字・ひらがな・カタカナのみ
     if re.match(r'^[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]+$', t):
         return True
     return False
 
 # ============================================================
-#  Streamlit UI
+#  役職・グループ抽出（Excel構造から）
 # ============================================================
-st.set_page_config(page_title="勤務表AI（本番仕様統合版）", layout="wide")
-st.title("📘 勤務表AI（Gemini 3.6 Flash / 本番仕様＋Excel出力）")
+def extract_roles_groups(df_raw, filtered_names):
+    roles = {}
+    groups = {}
+
+    for idx, row in df_raw.iterrows():
+        row_str = " ".join(row.astype(str).tolist())
+
+        # 役職候補
+        role_candidates = [
+            "介護長", "介護主任", "パート", "新入職員",
+            "看護師", "生活相談員"
+        ]
+        for rc in role_candidates:
+            if rc in row_str:
+                for name in filtered_names:
+                    if name in row_str:
+                        roles[name] = rc
+
+        # グループ候補
+        group_candidates = [
+            "Aグループ", "Bグループ", "Cグループ",
+            "A", "B", "C"
+        ]
+        for gc in group_candidates:
+            if gc in row_str:
+                for name in filtered_names:
+                    if name in row_str:
+                        groups[name] = gc
+
+    return roles, groups
+
+# ============================================================
+#  既存勤務表の書式抽出（色・罫線・セル結合・列幅・行高さ）
+# ============================================================
+def extract_format_from_existing_excel(uploaded_file, sheet_name):
+    uploaded_file.seek(0)
+    wb = load_workbook(uploaded_file)
+    ws = wb[sheet_name]
+
+    format_map = {}
+    for row in ws.iter_rows():
+        for cell in row:
+            format_map[(cell.row, cell.column)] = {
+                "fill": cell.fill,
+                "border": cell.border,
+                "font": cell.font,
+                "alignment": cell.alignment,
+            }
+
+    col_widths = {col: ws.column_dimensions[col].width for col in ws.column_dimensions}
+    row_heights = {row: ws.row_dimensions[row].height for row in ws.row_dimensions}
+    merged_cells = list(ws.merged_cells.ranges)
+
+    return format_map, col_widths, row_heights, merged_cells
+
+# ============================================================
+#  生成勤務表に既存書式を適用（完全コピー）
+# ============================================================
+def apply_format_to_generated_sheet(generated_data, format_map, col_widths, row_heights, merged_cells):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "勤務表"
+
+    # セル結合
+    for mc in merged_cells:
+        ws.merge_cells(str(mc))
+
+    # 列幅
+    for col, width in col_widths.items():
+        ws.column_dimensions[col].width = width
+
+    # 行高さ
+    for row, height in row_heights.items():
+        ws.row_dimensions[row].height = height
+
+    # 値＋書式適用
+    for r_idx, row in enumerate(generated_data, start=1):
+        for c_idx, value in enumerate(row, start=1):
+            cell = ws.cell(row=r_idx, column=c_idx, value=value)
+            if (r_idx, c_idx) in format_map:
+                fmt = format_map[(r_idx, c_idx)]
+                cell.fill = fmt["fill"]
+                cell.border = fmt["border"]
+                cell.font = fmt["font"]
+                cell.alignment = fmt["alignment"]
+
+    return wb
+    # ============================================================
+#  Streamlit UI（ここから中盤）
+# ============================================================
+st.set_page_config(page_title="勤務表AI（完全統合版）", layout="wide")
+st.title("📘 勤務表AI（Gemini 3.6 Flash / 本番仕様＋完全コピー）")
 
 uploaded_file = st.sidebar.file_uploader("勤務表Excelをアップロード", type=["xlsx", "xlsm"])
 
@@ -105,7 +190,7 @@ if not uploaded_file:
     st.stop()
 
 # ============================================================
-#  全シート読み込み
+#  Excel全シート読み込み
 # ============================================================
 xls = pd.ExcelFile(uploaded_file)
 sheets = xls.sheet_names
@@ -115,10 +200,9 @@ st.write("### 読み込んだシート一覧")
 st.json(sheets)
 
 # ============================================================
-#  勤務記号入りシートを探す
+#  勤務記号入りシートを自動判定
 # ============================================================
 target_sheet = find_sheet_with_codes(dfs)
-
 if not target_sheet:
     st.error("❌ 勤務記号が含まれるシートが見つかりませんでした。")
     st.stop()
@@ -140,7 +224,6 @@ st.json(filtered_names)
 #  勤務記号抽出
 # ============================================================
 all_rows = df_raw.fillna("").astype(str).values.tolist()
-
 code_candidates = set()
 for row in all_rows:
     for cell in row:
@@ -151,7 +234,26 @@ st.write("### 抽出された勤務記号（候補）")
 st.json(sorted(list(code_candidates)))
 
 # ============================================================
-#  ① 既存勤務表の解析（staff / codes）
+#  役職・グループ抽出（Excel構造）
+# ============================================================
+roles, groups = extract_roles_groups(df_raw, filtered_names)
+
+st.write("### Excelから抽出された役職候補")
+st.json(roles)
+
+st.write("### Excelから抽出されたグループ候補")
+st.json(groups)
+
+# ============================================================
+#  既存勤務表の書式抽出（色・罫線・セル結合・列幅・行高さ）
+# ============================================================
+format_map, col_widths, row_heights, merged_cells = extract_format_from_existing_excel(uploaded_file, target_sheet)
+
+st.write("### 書式抽出（セル結合数）")
+st.write(len(merged_cells))
+
+# ============================================================
+# ① 既存勤務表の解析（staff / codes）
 # ============================================================
 st.write("## ① 既存勤務表の構造解析（staff / codes）")
 
@@ -161,12 +263,33 @@ if st.button("既存勤務表を解析する"):
         analyze_prompt = f"""
 JSONのみ返してください。
 
+以下の職員名・役職候補・グループ候補を使って、
+正確な staff を生成してください。
+
+職員名一覧:
+{json.dumps(filtered_names, ensure_ascii=False)}
+
+役職候補（Excelから抽出）:
+{json.dumps(roles, ensure_ascii=False)}
+
+グループ候補（Excelから抽出）:
+{json.dumps(groups, ensure_ascii=False)}
+
+勤務記号一覧:
+{json.dumps(sorted(list(code_candidates)), ensure_ascii=False)}
+
+出力形式:
 {{
   "staff": [
     {{"name": "", "role": "", "group": ""}}
   ],
-  "codes": {json.dumps(sorted(list(code_candidates)), ensure_ascii=False)}
+  "codes": []
 }}
+
+重要:
+- JSON以外の文章は禁止
+- 名前を勝手に作らない
+- 役職・グループは Excel の構造を優先し、足りない部分は Gemini が補正する
 """
 
         raw_output = gemini_generate(analyze_prompt)
@@ -192,9 +315,8 @@ JSONのみ返してください。
 
         st.write("### codes（勤務記号一覧）")
         st.json(st.session_state["parsed_codes"])
-
 # ============================================================
-#  ② 翌月勤務表生成（本番仕様JSON）
+# ② 翌月勤務表生成（本番仕様JSON）
 # ============================================================
 st.write("## ② 翌月の勤務表を生成する（本番仕様JSON）")
 
@@ -211,8 +333,7 @@ if st.button("翌月の勤務表を生成する"):
 
         staff_json = st.session_state["parsed_staff"]
         codes_json = st.session_state["parsed_codes"]
-
-        days = 30  # とりあえず固定（あとで動的に可能）
+        days = 30  # 必要なら自動判定に変更可能
 
         generate_prompt = f"""
 JSONのみ返してください。
@@ -269,14 +390,13 @@ JSONのみ返してください。
 【職員一覧】
 {json.dumps(staff_json, ensure_ascii=False)}
 
-重要：
-- JSON以外の文章は禁止。
-- 必ず完全な JSON を返す。
-- schedule は 1〜{days} まで全て埋める。
+重要:
+- JSON以外の文章は禁止
+- 必ず完全な JSON を返す
+- schedule は 1〜{days} まで全て埋める
 """
 
         raw_output = gemini_generate(generate_prompt)
-
         st.write("### Gemini 生出力（生成）")
         st.text(raw_output)
 
@@ -294,9 +414,9 @@ JSONのみ返してください。
         st.session_state["generated_schedule"] = generated_schedule
 
 # ============================================================
-#  ③ 生成した勤務表をExcelに書き出す
+# ③ 生成した勤務表を既存勤務表の完全コピーでExcelに書き出す
 # ============================================================
-st.write("## ③ 生成した勤務表をExcelに書き出す")
+st.write("## ③ 生成した勤務表を既存勤務表の完全コピーでExcelに書き出す")
 
 if "generated_schedule" in st.session_state:
     generated_schedule = st.session_state["generated_schedule"]
@@ -304,35 +424,56 @@ if "generated_schedule" in st.session_state:
     days = generated_schedule.get("days", 30)
 
     if staff_list:
+
+        # -------------------------
+        # 既存勤務表の構造に合わせて行列を作る
+        # -------------------------
         rows = []
+
+        # 既存勤務表のヘッダー構造をそのままコピーするため、
+        # 既存Excelの行数・列数に合わせて生成データを流し込む。
+        # 今回は簡易的に「職員名・役職・グループ＋日付列」を構成。
+        header = ["職員名", "役職", "グループ"] + [str(d) for d in range(1, days + 1)]
+        rows.append(header)
+
         for staff in staff_list:
-            row = {
-                "職員名": staff.get("name", ""),
-                "役職": staff.get("role", ""),
-                "グループ": staff.get("group", "")
-            }
-            schedule = staff.get("schedule", {})
-            for d in range(1, days + 1):
-                row[str(d)] = schedule.get(str(d), "")
+            row = [
+                staff.get("name", ""),
+                staff.get("role", ""),
+                staff.get("group", "")
+            ] + [staff.get("schedule", {}).get(str(d), "") for d in range(1, days + 1)]
             rows.append(row)
 
-        df_out = pd.DataFrame(rows)
-
+        # 表示用
+        df_out = pd.DataFrame(rows[1:], columns=rows[0])
         st.write("### 生成勤務表（テーブル表示）")
         st.dataframe(df_out)
 
-        # Excel書き出し（engine 指定なし → openpyxl が自動使用）
-        buffer = BytesIO()
-        with pd.ExcelWriter(buffer) as writer:
-            df_out.to_excel(writer, index=False, sheet_name="勤務表")
+        # -------------------------
+        # 完全コピー書式を適用
+        # -------------------------
+        wb = apply_format_to_generated_sheet(
+            rows,
+            format_map,
+            col_widths,
+            row_heights,
+            merged_cells
+        )
 
+        # -------------------------
+        # ダウンロード
+        # -------------------------
+        buffer = BytesIO()
+        wb.save(buffer)
         buffer.seek(0)
 
         st.download_button(
-            label="生成した勤務表をExcelでダウンロード",
+            label="既存勤務表の完全コピーをExcelでダウンロード",
             data=buffer,
             file_name=f"勤務表_{generated_schedule.get('month', 'unknown')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
 else:
-    st.info("まだ勤務表が生成されていません。『翌月の勤務表を生成する』を先に実行してください。")
+    st.info("まだ勤務表が生成されていません。『既存勤務表を解析する』『翌月の勤務表を生成する』を先に実行してください。")
+
