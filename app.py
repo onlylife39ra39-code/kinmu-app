@@ -212,15 +212,13 @@ if st.button("翌月の勤務表を生成する"):
         staff_json = st.session_state["parsed_staff"]
         codes_json = st.session_state["parsed_codes"]
 
-        # 月の日数はとりあえず30で固定（あとで動的にしてもOK）
-        days = 30
+        days = 30  # とりあえず固定（あとで動的に可能）
 
         generate_prompt = f"""
 JSONのみ返してください。
 
 以下の仕様で勤務表を生成してください。
 
-【JSON仕様】
 {{
   "month": "{month}",
   "days": {days},
@@ -305,11 +303,14 @@ if "generated_schedule" in st.session_state:
     staff_list = generated_schedule.get("staff", [])
     days = generated_schedule.get("days", 30)
 
-    # DataFrame化：行＝職員、列＝日付
     if staff_list:
         rows = []
         for staff in staff_list:
-            row = {"職員名": staff.get("name", ""), "役職": staff.get("role", ""), "グループ": staff.get("group", "")}
+            row = {
+                "職員名": staff.get("name", ""),
+                "役職": staff.get("role", ""),
+                "グループ": staff.get("group", "")
+            }
             schedule = staff.get("schedule", {})
             for d in range(1, days + 1):
                 row[str(d)] = schedule.get(str(d), "")
@@ -320,9 +321,9 @@ if "generated_schedule" in st.session_state:
         st.write("### 生成勤務表（テーブル表示）")
         st.dataframe(df_out)
 
-        # Excel書き出し
+        # Excel書き出し（engine 指定なし → openpyxl が自動使用）
         buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        with pd.ExcelWriter(buffer) as writer:
             df_out.to_excel(writer, index=False, sheet_name="勤務表")
 
         buffer.seek(0)
