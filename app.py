@@ -450,6 +450,34 @@ def load_staff_list(uploaded_file):
     df_staff = pd.read_excel(xls, sheet_name="職員一覧")
     names = df_staff["氏名"].dropna().astype(str).str.strip().tolist()
     return names
+def load_staff_list(uploaded_file):
+    xls = pd.ExcelFile(uploaded_file)
+    df_staff = pd.read_excel(xls, sheet_name="職員一覧")
+
+    # 列名候補
+    name_columns = ["氏名", "名前", "職員名", "Name"]
+
+    # 実際に存在する列を探す
+    target_col = None
+    for col in df_staff.columns:
+        if col in name_columns:
+            target_col = col
+            break
+
+    # 見つからなければ一番左の列を名前列として扱う
+    if target_col is None:
+        target_col = df_staff.columns[0]
+
+    names = (
+        df_staff[target_col]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .tolist()
+    )
+
+    return names
+
 
 # ============================================================
 # ① 既存勤務表を解析する（職員・役職・グループ・勤務記号）
@@ -464,7 +492,6 @@ if uploaded_file:
 
     # 職員名抽出
     filtered_names = load_staff_list(uploaded_file)
-
 
     # 役職・グループ抽出（強化版）
     roles, groups = extract_roles_groups(df_raw, filtered_names)
