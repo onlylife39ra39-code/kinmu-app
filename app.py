@@ -351,10 +351,11 @@ format_map, col_widths, row_heights, merged_cells = extract_format_from_existing
 # ============================================================
 st.write("## ① 既存勤務表を解析する")
 
-uploaded_file = st.file_uploader("既存勤務表（Excel）をアップロード", type=["xlsx"])
+uploaded_file = st.file_uploader("既存勤務表（Excel）をアップロード", type=["xlsx", "xlsm"])
 
 if uploaded_file:
-    df_raw = pd.read_excel(uploaded_file, header=None)
+    # xlsm対応（openpyxlで読み取る）
+    df_raw = pd.read_excel(uploaded_file, header=None, engine="openpyxl")
 
     # 職員名抽出
     filtered_names = extract_names(df_raw)
@@ -381,7 +382,7 @@ if uploaded_file:
     st.session_state["parsed_staff"] = parsed_staff
     st.session_state["parsed_codes"] = code_candidates
 
-    st.success("既存勤務表を解析しました！")
+    st.success("既存勤務表を解析しました！（xlsm対応）")
     st.json(parsed_staff)
 
 
