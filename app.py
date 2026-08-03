@@ -592,9 +592,9 @@ if st.button("翌月の勤務表を生成する"):
 
         try:
             start = raw_output.find("{")
-　　　　　　　　end = raw_output.rfind("}")
-　　　　　　　　json_text = raw_output[start:end+1]
-　　　　　　　　generated_schedule = json.loads(json_text)
+end = raw_output.rfind("}")
+json_text = raw_output[start:end+1]
+generated_schedule = json.loads(json_text)
 
         except Exception as e:
             st.error(f"JSON解析に失敗しました: {e}")
