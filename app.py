@@ -104,23 +104,59 @@ def extract_roles_groups(df_raw: pd.DataFrame, filtered_names):
     roles = {}
     groups = {}
 
-    # 現在の役職・グループを保持する
     current_role = None
     current_group = None
 
     for _, row in df_raw.iterrows():
         row_values = [str(x).strip() for x in row.tolist()]
 
-        # -------------------------
-        # 役職行（左端に縦に並ぶ）
-        # -------------------------
+        # 役職行
         if "介護長" in row_values:
             current_role = "介護長"
             current_group = None
             continue
 
         if "介護主任" in row_values:
-            current_role = "
+            current_role = "介護主任"
+            current_group = None
+            continue
+
+        if "新入職員" in row_values:
+            current_role = "新入職員"
+            current_group = None
+            continue
+
+        if "パート" in row_values:
+            current_role = "パート"
+            current_group = None
+            continue
+
+        # グループ行
+        if "Aグループ" in row_values:
+            current_group = "Aグループ"
+            current_role = None
+            continue
+
+        if "Bグループ" in row_values:
+            current_group = "Bグループ"
+            current_role = None
+            continue
+
+        if "Cグループ" in row_values:
+            current_group = "Cグループ"
+            current_role = None
+            continue
+
+        # 職員名行
+        for name in filtered_names:
+            if name in row_values:
+                if current_role:
+                    roles[name] = current_role
+                if current_group:
+                    groups[name] = current_group
+
+    return roles, groups
+
 # ============================================================
 #  既存勤務表の書式抽出（色・罫線・セル結合・列幅・行高さ）
 # ============================================================
