@@ -105,12 +105,31 @@ def is_staff_name(text: str) -> bool:
 # ============================================================
 def extract_codes(df_raw: pd.DataFrame):
     codes = set()
+
     for _, row in df_raw.iterrows():
         for cell in row:
             text = str(cell).strip()
+
+            # 空欄はスキップ
+            if not text or text == "nan":
+                continue
+
+            # 勤務記号リストのどれかが含まれていれば追加
             for code in CODE_LIST:
-                if code and code in text:
+                if code in text:
                     codes.add(code)
+
+            # 数字＋記号の複合表記にも対応（例：早1A、遅1B、日2ホ）
+            for code in CODE_LIST:
+                if re.search(rf"{code}", text):
+                    codes.add(code)
+
+            # 「早」「日」「遅」「夜」だけの表記にも対応
+            if any(k in text for k in ["早", "日", "遅", "夜"]):
+                for code in CODE_LIST:
+                    if code.startswith(text[0]):  # 例：早 → 早1, 早A, 早B...
+                        codes.add(code)
+
     return sorted(list(codes))
 
 # ============================================================
