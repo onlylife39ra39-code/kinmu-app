@@ -347,6 +347,104 @@ st.json(groups)
 # ============================================================
 format_map, col_widths, row_heights, merged_cells = extract_format_from_existing_excel(uploaded_file, target_sheet)
 # ============================================================
+# 解析関数セット（Part7 の直前に必ず置く）
+# ============================================================
+
+import re
+import json
+import pandas as pd
+
+# ----------------------------------------
+# ① 職員名抽出（漢字2〜4文字を名前と判定）
+# ----------------------------------------
+def extract_names(df_raw):
+    names = set()
+    for _, row in df_raw.iterrows():
+        for cell in row:
+            text = str(cell).strip()
+            # まーくん勤務表の名前は漢字2〜4文字
+            if re.match(r'^[\u4E00-\u9FFF]{2,4}$', text):
+                names.add(text)
+    return sorted(list(names))
+
+
+# ----------------------------------------
+# ② 役職・グループ抽出（まーくん勤務表構造）
+# ----------------------------------------
+def extract_roles_groups(df_raw, filtered_names):
+    roles = {}
+    groups = {}
+
+    current_role = None
+    current_group = None
+
+    for _, row in df_raw.iterrows():
+        row_values = [str(x).strip() for x in row.tolist()]
+
+        # 役職行
+        if "介護長" in row_values:
+            current_role = "介護長"; current_group = None; continue
+        if "介護主任" in row_values:
+            current_role = "介護主任"; current_group = None; continue
+        if "新入職員" in row_values:
+            current_role = "新入職員"; current_group = None; continue
+        if "パート" in row_values:
+            current_role = "パート"; current_group = None; continue
+
+        # グループ行
+        if "Aグループ" in row_values:
+            current_group = "Aグループ"; current_role = None; continue
+        if "Bグループ" in row_values:
+            current_group = "Bグループ"; current_role = None; continue
+        if "Cグループ" in row_values:
+            current_group = "Cグループ"; current_role = None; continue
+
+        # 職員名行
+        for name in filtered_names:
+            if name in row_values:
+                if current_role:
+                    roles[name] = current_role
+                if current_group:
+                    groups[name] = current_group
+
+    return roles, groups
+
+
+# ----------------------------------------
+# ③ 既存勤務表の読み取り（新人・パート固定用）
+# ----------------------------------------
+def extract_existing_schedule(df_raw, filtered_names):
+    schedules = {name: {} for name in filtered_names}
+
+    for _, row in df_raw.iterrows():
+        row_values = [str(x).strip() for x in row.tolist()]
+
+        for name in filtered_names:
+            if name in row_values:
+                idx = row_values.index(name)
+
+                # 名前の右側に 1〜30日の勤務記号が並んでいる前提
+                for day in range(1, 31):
+                    if idx + day < len(row_values):
+                        schedules[name][str(day)] = row_values[idx + day]
+
+    return schedules
+
+
+# ----------------------------------------
+# ④ 勤務記号抽出（CODE_LIST に含まれる記号を拾う）
+# ----------------------------------------
+def extract_codes(df_raw):
+    codes = set()
+    for _, row in df_raw.iterrows():
+        for cell in row:
+            text = str(cell).strip()
+            for code in CODE_LIST:
+                if code and code in text:
+                    codes.add(code)
+    return sorted(list(codes))
+
+# ============================================================
 # ① 既存勤務表を解析する（職員・役職・グループ・勤務記号）
 # ============================================================
 st.write("## ① 既存勤務表を解析する")
