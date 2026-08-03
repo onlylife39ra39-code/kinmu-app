@@ -442,7 +442,14 @@ def extract_codes(df_raw):
             for code in CODE_LIST:
                 if code and code in text:
                     codes.add(code)
+    
     return sorted(list(codes))
+
+def load_staff_list(uploaded_file):
+    xls = pd.ExcelFile(uploaded_file)
+    df_staff = pd.read_excel(xls, sheet_name="職員一覧")
+    names = df_staff["氏名"].dropna().astype(str).str.strip().tolist()
+    return names
 
 # ============================================================
 # ① 既存勤務表を解析する（職員・役職・グループ・勤務記号）
@@ -456,7 +463,8 @@ if uploaded_file:
     df_raw = pd.read_excel(uploaded_file, header=None, engine="openpyxl")
 
     # 職員名抽出
-    filtered_names = extract_names(df_raw)
+    filtered_names = load_staff_list(uploaded_file)
+
 
     # 役職・グループ抽出（強化版）
     roles, groups = extract_roles_groups(df_raw, filtered_names)
