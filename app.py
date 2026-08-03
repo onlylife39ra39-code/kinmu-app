@@ -554,7 +554,8 @@ if st.button("翌月の勤務表を生成する"):
 
         # 安全な % 方式でプロンプト生成
         generate_prompt = """
-JSONのみ返してください。
+絶対に JSON のみを返してください。説明文・補足・前置きは禁止です。
+
 
 以下の仕様で勤務表を生成してください。
 
@@ -586,11 +587,15 @@ JSONのみ返してください。
 
         raw_output = gemini_generate(generate_prompt)
         st.write("### Gemini 生出力（生成）")
-        st.text(raw_output)
+        st.code(raw_output, language="json")
+
 
         try:
-            json_text = re.search(r'\{[\s\S]*\}', raw_output).group(0)
-            generated_schedule = json.loads(json_text)
+            start = raw_output.find("{")
+　　　　　　　　end = raw_output.rfind("}")
+　　　　　　　　json_text = raw_output[start:end+1]
+　　　　　　　　generated_schedule = json.loads(json_text)
+
         except Exception as e:
             st.error(f"JSON解析に失敗しました: {e}")
             st.text(raw_output)
