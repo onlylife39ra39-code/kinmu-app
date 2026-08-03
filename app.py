@@ -213,6 +213,8 @@ def extract_format_from_existing_excel(uploaded_file, sheet_name):
 # ============================================================
 #  生成勤務表に既存書式を適用（完全コピー）
 # ============================================================
+from openpyxl.styles import NamedStyle
+
 def apply_format_to_generated_sheet(generated_data, format_map, col_widths, row_heights, merged_cells):
     wb = Workbook()
     ws = wb.active
@@ -230,17 +232,29 @@ def apply_format_to_generated_sheet(generated_data, format_map, col_widths, row_
     for row, height in row_heights.items():
         ws.row_dimensions[row].height = height
 
-    # 値＋書式コピー（deepcopy禁止）
+    # 書式コピー用 NamedStyle キャッシュ
+    style_cache = {}
+
     for r_idx, row in enumerate(generated_data, start=1):
         for c_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=value)
 
             if (r_idx, c_idx) in format_map:
                 fmt = format_map[(r_idx, c_idx)]
-                cell.fill = fmt["fill"]
-                cell.border = fmt["border"]
-                cell.font = fmt["font"]
-                cell.alignment = fmt["alignment"]
+
+                # キャッシュキー
+                key = (fmt["fill"], fmt["border"], fmt["font"], fmt["alignment"])
+
+                if key not in style_cache:
+                    style = NamedStyle(name=f"style_{r_idx}_{c_idx}")
+                    style.fill = fmt["fill"]
+                    style.border = fmt["border"]
+                    style.font = fmt["font"]
+                    style.alignment = fmt["alignment"]
+                    wb.add_named_style(style)
+                    style_cache[key] = style
+
+                cell.style = style_cache[key]
 
     return wb
 
