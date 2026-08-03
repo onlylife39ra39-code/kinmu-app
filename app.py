@@ -586,30 +586,26 @@ if st.button("翌月の勤務表を生成する"):
         )
 
         raw_output = gemini_generate(generate_prompt)
+st.write("### Gemini 生出力（生成）")
 st.code(raw_output, language="json")
 
-# Gemini 出力をファイルに保存（長文でも絶対に切れない）
-with open("gemini_output.json", "w", encoding="utf-8") as f:
-    f.write(raw_output)
+try:
+    # JSON抽出（安全版）
+    start = raw_output.find("{")
+    end = raw_output.rfind("}")
+    json_text = raw_output[start:end+1]
+    generated_schedule = json.loads(json_text)
 
-# ファイルから読み直して JSON をパース
-        try:
-            # JSON抽出（安全版）
-            start = raw_output.find("{")
-            end = raw_output.rfind("}")
-            json_text = raw_output[start:end+1]
-            generated_schedule = json.loads(json_text)
+except Exception as e:
+    st.error(f"JSON解析に失敗しました: {e}")
+    st.text(raw_output)
+    st.stop()
 
-        except Exception as e:
-            st.error(f"JSON解析に失敗しました: {e}")
-            st.text(raw_output)
-            st.stop()
-
-        # 新人・パートの schedule を上書き（固定）
-        for s in generated_schedule["staff"]:
-            name = s["name"]
-            if name in fixed_staff_schedule:
-                s["schedule"] = fixed_staff_schedule[name]
+# 新人・パートの schedule を上書き（固定）
+for s in generated_schedule["staff"]:
+    name = s["name"]
+    if name in fixed_staff_schedule:
+        s["schedule"] = fixed_staff_schedule[name]
 
         st.success("翌月の勤務表が生成されました！")
         st.json(generated_schedule)
