@@ -34,13 +34,27 @@ def gemini_generate(prompt: str) -> str:
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0, "maxOutputTokens": 8192},
     }
-    response = requests.post(url, headers=headers, json=data)
-    result = response.json()
-    if "error" in result:
+
+    # 503 対策：最大3回まで自動リトライ
+    for attempt in range(3):
+        response = requests.post(url, headers=headers, json=data)
+        result = response.json()
+
+        if "error" not in result:
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+
+        # 503 の場合は再試行
+        if result["error"].get("code") == 503:
+            time.sleep(2)  # 少し待つ
+            continue
+
+        # その他のエラーは即停止
         st.error("Gemini API エラー:")
         st.json(result)
         st.stop()
-    return result["candidates"][0]["content"]["parts"][0]["text"]
+
+    st.error("Gemini API が混雑のため応答できませんでした（503）。時間を置いて再試行してください。")
+    st.stop()
 
 # ============================================================
 #  勤務記号（文化OS ver3.0）
