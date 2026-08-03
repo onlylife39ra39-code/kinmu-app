@@ -596,6 +596,7 @@ end = raw_output.rfind("}")
 json_text = raw_output[start:end+1]
 generated_schedule = json.loads(json_text)
 
+
         except Exception as e:
             st.error(f"JSON解析に失敗しました: {e}")
             st.text(raw_output)
