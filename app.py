@@ -442,7 +442,12 @@ if st.button("翌月の勤務表を生成する"):
         codes_json = st.session_state["parsed_codes"] or code_candidates
         days = 30
 
-        generate_prompt = f"""
+        {
+  "month": "{month}",
+  "days": {days},
+  "staff": {json.dumps(filtered_staff_json, ensure_ascii=False)}
+}
+
 JSONのみ返してください。
 
 以下の仕様で勤務表を生成してください。
