@@ -442,71 +442,43 @@ if st.button("翌月の勤務表を生成する"):
         codes_json = st.session_state["parsed_codes"] or code_candidates
         days = 30
 
-        {
-  "month": "{month}",
-  "days": {days},
-  "staff": {json.dumps(filtered_staff_json, ensure_ascii=False)}
-}
+        # 新人とパートは勤務生成対象から除外（ただし staff からは消さない）
+        generate_target_staff = [
+            s for s in staff_json
+            if s.get("role") not in ["新入職員", "パート"]
+        ]
 
+        # f-string は日本語と {} が混ざると壊れるので安全な % 方式で生成
+        generate_prompt = """
 JSONのみ返してください。
 
 以下の仕様で勤務表を生成してください。
 
-{{
-  "month": "{month}",
-  "days": {days},
-  "staff": [
-    {{
-      "name": "",
-      "role": "",
-      "group": "",
-      "schedule": {{
-        "1": "",
-        "2": "",
-        "3": "",
-        "4": "",
-        "5": "",
-        "6": "",
-        "7": "",
-        "8": "",
-        "9": "",
-        "10": "",
-        "11": "",
-        "12": "",
-        "13": "",
-        "14": "",
-        "15": "",
-        "16": "",
-        "17": "",
-        "18": "",
-        "19": "",
-        "20": "",
-        "21": "",
-        "22": "",
-        "23": "",
-        "24": "",
-        "25": "",
-        "26": "",
-        "27": "",
-        "28": "",
-        "29": "",
-        "30": ""
-      }}
-    }}
-  ]
-}}
+{
+  "month": "%s",
+  "days": %d,
+  "staff": %s
+}
 
 【勤務記号一覧】
-{json.dumps(codes_json, ensure_ascii=False)}
+%s
 
-【職員一覧】
-{json.dumps(staff_json, ensure_ascii=False)}
+【勤務を生成する対象（新人・パート以外）】
+%s
 
 重要:
+- 新入職員とパートの schedule は絶対に変更しない
+- 生成対象は generate_target_staff のみ
 - JSON以外の文章は禁止
-- 必ず完全な JSON を返す
-- schedule は 1〜{days} まで全て埋める
-"""
+- schedule は 1〜%d まで全て埋める
+""" % (
+            month,
+            days,
+            json.dumps(staff_json, ensure_ascii=False),
+            json.dumps(codes_json, ensure_ascii=False),
+            json.dumps(generate_target_staff, ensure_ascii=False),
+            days
+        )
 
         raw_output = gemini_generate(generate_prompt)
         st.write("### Gemini 生出力（生成）")
@@ -516,7 +488,7 @@ JSONのみ返してください。
             json_text = re.search(r'\{[\s\S]*\}', raw_output).group(0)
             generated_schedule = json.loads(json_text)
         except Exception as e:
-            st.error(f"JSON解析に失敗しました: {e}")
+            st.error(f"JSON解析に失敗しました: %s" % e)
             st.text(raw_output)
             st.stop()
 
@@ -524,6 +496,7 @@ JSONのみ返してください。
         st.json(generated_schedule)
 
         st.session_state["generated_schedule"] = generated_schedule
+
 # ============================================================
 # ③ 生成した勤務表を既存勤務表の完全コピーでExcelに書き出す
 # ============================================================
