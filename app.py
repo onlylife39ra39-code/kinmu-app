@@ -347,83 +347,46 @@ st.json(groups)
 # ============================================================
 format_map, col_widths, row_heights, merged_cells = extract_format_from_existing_excel(uploaded_file, target_sheet)
 # ============================================================
-# ① 既存勤務表の構造解析（staff / codes）
+# ① 既存勤務表を解析する（職員・役職・グループ・勤務記号）
 # ============================================================
-st.write("## ① 既存勤務表の構造解析（staff / codes）")
+st.write("## ① 既存勤務表を解析する")
 
-if st.button("既存勤務表を解析する"):
-    with st.spinner("Gemini が既存勤務表を解析中…"):
+uploaded_file = st.file_uploader("既存勤務表（Excel）をアップロード", type=["xlsx"])
 
-        analyze_prompt = f"""
-あなたは勤務表解析AIです。
-以下の Excel の構造に従って、職員の役職とグループを正確に割り当ててください。
+if uploaded_file:
+    df_raw = pd.read_excel(uploaded_file, header=None)
 
-【勤務表の構造】
-- 役職とグループは「左端の列」に縦に並んでいる
-- 上から順に以下の構造になっている：
+    # 職員名抽出
+    filtered_names = extract_names(df_raw)
 
-介護長
-介護主任
-Aグループ（セル結合）
-Bグループ（セル結合）
-Cグループ（セル結合）
-新入職員
-パート（セル結合）
+    # 役職・グループ抽出（強化版）
+    roles, groups = extract_roles_groups(df_raw, filtered_names)
 
-- 各役職・グループの直下に、その所属の職員名が縦に並ぶ
-- 職員名は filtered_names に含まれる
+    # 勤務記号抽出
+    code_candidates = extract_codes(df_raw)
 
-【職員名一覧】
-{json.dumps(filtered_names, ensure_ascii=False)}
+    # 職員ごとの既存勤務表（新人・パート固定用）
+    staff_schedules = extract_existing_schedule(df_raw, filtered_names)
 
-【Excelから抽出した役職候補】
-{json.dumps(roles, ensure_ascii=False)}
+    # JSON化
+    parsed_staff = []
+    for name in filtered_names:
+        parsed_staff.append({
+            "name": name,
+            "role": roles.get(name, ""),
+            "group": groups.get(name, ""),
+            "schedule": staff_schedules.get(name, {})
+        })
 
-【Excelから抽出したグループ候補】
-{json.dumps(groups, ensure_ascii=False)}
+    st.session_state["parsed_staff"] = parsed_staff
+    st.session_state["parsed_codes"] = code_candidates
 
-【勤務記号一覧（Excelから抽出）】
-{json.dumps(code_candidates, ensure_ascii=False)}
+    st.success("既存勤務表を解析しました！")
+    st.json(parsed_staff)
 
-出力形式（必ずこの形式で返す）：
-{{
-  "staff": [
-    {{"name": "", "role": "", "group": ""}}
-  ],
-  "codes": []
-}}
 
-重要：
-- JSON以外の文章は禁止
-- 職員名は filtered_names のみ使用する
-- 役職とグループは構造に従って必ず割り当てる
-- 空欄を返さない
-"""
-
-        raw_output = gemini_generate(analyze_prompt)
-        st.write("### Gemini 生出力（解析）")
-        st.text(raw_output)
-
-        try:
-            json_text = re.search(r'\{[\s\S]*\}', raw_output).group(0)
-            parsed_json = json.loads(json_text)
-        except Exception as e:
-            st.error(f"JSON解析に失敗しました: {e}")
-            st.text(raw_output)
-            st.stop()
-
-        st.success("既存勤務表の解析が完了しました！")
-
-        st.session_state["parsed_staff"] = parsed_json.get("staff", [])
-        st.session_state["parsed_codes"] = parsed_json.get("codes", [])
-
-        st.write("### staff（職員一覧）")
-        st.json(st.session_state["parsed_staff"])
-
-        st.write("### codes（勤務記号一覧）")
-        st.json(st.session_state["parsed_codes"])
 # ============================================================
-# ② 翌月の勤務表を生成する（本番仕様JSON）
+# ② 翌月の勤務表を生成する（新人・パート固定）
 # ============================================================
 st.write("## ② 翌月の勤務表を生成する（本番仕様JSON）")
 
@@ -439,16 +402,23 @@ if st.button("翌月の勤務表を生成する"):
     with st.spinner("Gemini が勤務表を生成中…"):
 
         staff_json = st.session_state["parsed_staff"]
-        codes_json = st.session_state["parsed_codes"] or code_candidates
+        codes_json = st.session_state["parsed_codes"]
         days = 30
 
-        # 新人とパートは勤務生成対象から除外（ただし staff からは消さない）
+        # 新人・パートの既存勤務を固定
+        fixed_staff_schedule = {
+            s["name"]: s["schedule"]
+            for s in staff_json
+            if s.get("role") in ["新入職員", "パート"]
+        }
+
+        # 生成対象（新人・パート以外）
         generate_target_staff = [
             s for s in staff_json
             if s.get("role") not in ["新入職員", "パート"]
         ]
 
-        # f-string は日本語と {} が混ざると壊れるので安全な % 方式で生成
+        # 安全な % 方式でプロンプト生成
         generate_prompt = """
 JSONのみ返してください。
 
@@ -488,67 +458,106 @@ JSONのみ返してください。
             json_text = re.search(r'\{[\s\S]*\}', raw_output).group(0)
             generated_schedule = json.loads(json_text)
         except Exception as e:
-            st.error(f"JSON解析に失敗しました: %s" % e)
+            st.error(f"JSON解析に失敗しました: {e}")
             st.text(raw_output)
             st.stop()
+
+        # 新人・パートの schedule を上書き（固定）
+        for s in generated_schedule["staff"]:
+            name = s["name"]
+            if name in fixed_staff_schedule:
+                s["schedule"] = fixed_staff_schedule[name]
 
         st.success("翌月の勤務表が生成されました！")
         st.json(generated_schedule)
 
         st.session_state["generated_schedule"] = generated_schedule
 
+
 # ============================================================
-# ③ 生成した勤務表を既存勤務表の完全コピーでExcelに書き出す
+# ③ 生成勤務表の手動編集UI
 # ============================================================
-st.write("## ③ 生成した勤務表を既存勤務表の完全コピーでExcelに書き出す")
+if "generated_schedule" in st.session_state:
+    st.write("## ③ 生成勤務表の手動編集")
+
+    edited = {}
+
+    for staff in st.session_state["generated_schedule"]["staff"]:
+        st.write(f"### {staff['name']}（{staff['role']}）")
+
+        schedule = staff["schedule"]
+        new_schedule = {}
+
+        cols = st.columns(10)
+        for i in range(1, 31):
+            col = cols[(i-1) % 10]
+            new_schedule[str(i)] = col.text_input(
+                f"{i}日",
+                value=schedule.get(str(i), ""),
+                key=f"{staff['name']}_{i}"
+            )
+
+        edited[staff["name"]] = new_schedule
+
+    if st.button("編集内容を反映する"):
+        for staff in st.session_state["generated_schedule"]["staff"]:
+            staff["schedule"] = edited[staff["name"]]
+
+        st.success("編集内容を反映しました！")
+
+
+# ============================================================
+# ④ Excel に既存勤務表の書式を完全コピーして書き出す
+# ============================================================
+st.write("## ④ Excel に既存勤務表の書式を完全コピーして書き出す")
 
 if "generated_schedule" in st.session_state:
+
     generated_schedule = st.session_state["generated_schedule"]
     staff_list = generated_schedule.get("staff", [])
     days = generated_schedule.get("days", 30)
 
-    if staff_list:
-        rows = []
+    rows = []
 
-        # 1行目ヘッダー
-        header = ["職員名", "役職", "グループ"] + [str(d) for d in range(1, days + 1)]
-        rows.append(header)
+    # ヘッダー
+    header = ["職員名", "役職", "グループ"] + [str(d) for d in range(1, days + 1)]
+    rows.append(header)
 
-        # 2行目以降：職員ごとの行
-        for staff in staff_list:
-            row = [
-                staff.get("name", ""),
-                staff.get("role", ""),
-                staff.get("group", "")
-            ] + [
-                staff.get("schedule", {}).get(str(d), "")
-                for d in range(1, days + 1)
-            ]
-            rows.append(row)
+    # 行データ
+    for staff in staff_list:
+        row = [
+            staff.get("name", ""),
+            staff.get("role", ""),
+            staff.get("group", "")
+        ] + [
+            staff.get("schedule", {}).get(str(d), "")
+            for d in range(1, days + 1)
+        ]
+        rows.append(row)
 
-        # Streamlit 表示用
-        df_out = pd.DataFrame(rows[1:], columns=rows[0])
-        st.write("### 生成勤務表（テーブル表示）")
-        st.dataframe(df_out)
+    df_out = pd.DataFrame(rows[1:], columns=rows[0])
+    st.write("### 生成勤務表（テーブル表示）")
+    st.dataframe(df_out)
 
-        # 既存勤務表の書式を完全コピーして新しいブックに適用
-        wb = apply_format_to_generated_sheet(
-            rows,
-            format_map,
-            col_widths,
-            row_heights,
-            merged_cells
-        )
+    # 書式コピー
+    wb = apply_format_to_generated_sheet(
+        rows,
+        format_map,
+        col_widths,
+        row_heights,
+        merged_cells
+    )
 
-        buffer = BytesIO()
-        wb.save(buffer)
-        buffer.seek(0)
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
 
-        st.download_button(
-            label="既存勤務表の完全コピーをExcelでダウンロード",
-            data=buffer,
-            file_name=f"勤務表_{generated_schedule.get('month', 'unknown')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+    st.download_button(
+        label="既存勤務表の完全コピーをExcelでダウンロード",
+        data=buffer,
+        file_name=f"勤務表_{generated_schedule.get('month', 'unknown')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
 else:
     st.info("まだ勤務表が生成されていません。『既存勤務表を解析する』『翌月の勤務表を生成する』を先に実行してください。")
