@@ -589,7 +589,7 @@ if st.button("翌月の勤務表を生成する"):
         st.write("### Gemini 生出力（生成）")
         st.code(raw_output, language="json")
         
-                    try:
+        try:
             # JSON抽出（安全版）
             start = raw_output.find("{")
             end = raw_output.rfind("}")
