@@ -107,10 +107,12 @@ def extract_codes(df_raw: pd.DataFrame):
     codes = set()
     for _, row in df_raw.iterrows():
         for cell in row:
-            cell = str(cell).strip()
-            if cell in CODE_LIST:
-                codes.add(cell)
+            text = str(cell).strip()
+            for code in CODE_LIST:
+                if code and code in text:
+                    codes.add(code)
     return sorted(list(codes))
+
 # ============================================================
 #  役職・グループ抽出（まーくん勤務表構造完全対応版）
 # ============================================================
@@ -216,41 +218,32 @@ def apply_format_to_generated_sheet(generated_data, format_map, col_widths, row_
     ws = wb.active
     ws.title = "勤務表"
 
-    # -------------------------
-    # セル結合を完全コピー
-    # -------------------------
+    # セル結合
     for mc in merged_cells:
         ws.merge_cells(str(mc))
 
-    # -------------------------
-    # 列幅を完全コピー
-    # -------------------------
+    # 列幅
     for col, width in col_widths.items():
         ws.column_dimensions[col].width = width
 
-    # -------------------------
-    # 行高さを完全コピー
-    # -------------------------
+    # 行高さ
     for row, height in row_heights.items():
         ws.row_dimensions[row].height = height
 
-    # -------------------------
-    # 値＋書式を完全コピー
-    # -------------------------
+    # 値＋書式コピー（deepcopy禁止）
     for r_idx, row in enumerate(generated_data, start=1):
         for c_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=value)
 
             if (r_idx, c_idx) in format_map:
                 fmt = format_map[(r_idx, c_idx)]
-
-                # openpyxl の書式は deepcopy しないと TypeError
-                cell.fill = deepcopy(fmt["fill"])
-                cell.border = deepcopy(fmt["border"])
-                cell.font = deepcopy(fmt["font"])
-                cell.alignment = deepcopy(fmt["alignment"])
+                cell.fill = fmt["fill"]
+                cell.border = fmt["border"]
+                cell.font = fmt["font"]
+                cell.alignment = fmt["alignment"]
 
     return wb
+
 # ============================================================
 #  Streamlit UI（ページ設定）
 # ============================================================
